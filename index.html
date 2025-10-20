@@ -5,67 +5,48 @@
 <meta name="viewport" content="width=device-width,initial-scale=1" />
 <title>Shong - Shit Pong</title>
 <style>
-:root {
-  --viewport-bg: #101010;
-  --court-bg: #000;
-  --line-color: #fff;
-  --fg: #e6eef8;
+:root{--bg:#0b1221;--fg:#e6eef8;}
+html,body{margin:0;height:100%;overflow:hidden;}
+body{
+  background:linear-gradient(180deg,var(--bg),#071021);
+  font-family:"Comic Sans MS","Comic Sans",cursive;
+  position:relative;
 }
-
-html, body {
-  margin: 0;
-  height: 100%;
-  overflow: hidden;
+.wrap{
+  width:640px; /* 800*0.8 */
+  height:360px; /* 450*0.8 */
+  position:absolute;
+  transform-origin:center center;
 }
-
-body {
-  background: var(--viewport-bg);
-  font-family: "Comic Sans MS", "Comic Sans", cursive;
-  position: relative;
+canvas{
+  display:block;
+  width:100%;
+  height:100%;
+  background:rgba(255,255,255,0.02);
+  border-radius:10px;
+  box-shadow:0 8px 30px rgba(2,6,23,0.6);
 }
-
-.wrap {
-  width: 640px;
-  height: 360px;
-  position: absolute;
-  transform-origin: center center;
-}
-
-canvas {
-  display: block;
-  width: 100%;
-  height: 100%;
-  background: var(--court-bg);
-  border-radius: 10px;
-  box-shadow: 0 8px 30px rgba(0,0,0,0.6);
-  border: 2px solid var(--line-color); /* white border around the court */
-}
-
-/* Bottom control bar removed; reset button is now positioned inside .wrap */
-.controls {
-  position: absolute;
-  bottom: 8px;
-  right: 8px;
-}
-
-button {
-  background: transparent;
-  border: 1px solid rgba(230,238,248,0.15);
-  padding: 6px 10px;
-  border-radius: 8px;
-  color: var(--fg);
-  cursor: pointer;
-  backdrop-filter: blur(4px);
+button{
+  background:transparent;
+  border:1px solid rgba(230,238,248,0.08);
+  padding:6px 10px;
+  border-radius:8px;
+  color:var(--fg);
+  cursor:pointer;
+  margin-right:4px;
 }
 </style>
 </head>
 <body>
 <div class="wrap">
   <canvas id="game"></canvas>
-
-  <!-- Moved Reset button here -->
-  <div class="controls">
+  <div style="display:flex;justify-content:space-between;margin-top:4px;">
+    <div>
+      <button id="aiToggle">Toggle AI</button>
+      <button id="movementToggle">Toggle Movement</button>
+    </div>
     <button id="resetBtn">Reset</button>
+    <div id="score" style="color:white;"></div>
   </div>
 </div>
 
@@ -74,215 +55,181 @@ button {
 const canvas = document.getElementById('game');
 const ctx = canvas.getContext('2d');
 const wrapEl = document.querySelector('.wrap');
-const resetBtn = document.getElementById('resetBtn');
 
 const SCALE = 0.8;
 const GAME_W = 800 * SCALE, GAME_H = 450 * SCALE;
 const PADDLE_W = 12 * SCALE, PADDLE_H = 90 * SCALE, BALL_R = 8 * SCALE;
 
-function fitCanvas() {
+function fitCanvas(){
   const rect = canvas.getBoundingClientRect();
-  canvas.width = Math.round(rect.width * devicePixelRatio);
-  canvas.height = Math.round(rect.height * devicePixelRatio);
-  ctx.setTransform(devicePixelRatio, 0, 0, devicePixelRatio, 0, 0);
+  canvas.width = Math.round(rect.width*devicePixelRatio);
+  canvas.height = Math.round(rect.height*devicePixelRatio);
+  ctx.setTransform(devicePixelRatio,0,0,devicePixelRatio,0,0);
 }
 fitCanvas();
 new ResizeObserver(fitCanvas).observe(canvas);
 
-// Audio setup (left as is)
+// Audio
 const bonkSound = new Audio('sound/bonk.wav');
 const springSound = new Audio('sound/spring.wav');
+const audioCtx = new (window.AudioContext || window.webkitAudioContext) || null;
+
+function playSpring(side){
+  if(!audioCtx) return springSound.play();
+  const track = audioCtx.createMediaElementSource(springSound.cloneNode());
+  const panner = audioCtx.createStereoPanner();
+  if(side==='left') panner.pan.value=-1;
+  if(side==='right') panner.pan.value=1;
+  if(side==='top'||side==='bottom') panner.pan.value=0;
+  track.connect(panner).connect(audioCtx.destination);
+  springSound.currentTime=0; springSound.play();
+}
 
 // Game state
-let player = { x: 24 * SCALE, y: (GAME_H - PADDLE_H) / 2, score: 0 };
-let cpu = { x: GAME_W - 24 * SCALE - PADDLE_W, y: (GAME_H - PADDLE_H) / 2, score: 0 };
-let ball = { x: GAME_W / 2, y: GAME_H / 2, vx: 220 * SCALE, vy: 60 * SCALE, r: BALL_R };
-let paused = true, aiEnabled = true, movementEnabled = true;
-let hue = 0, waveTime = 0;
-let wrapCenterX = window.innerWidth / 2, wrapCenterY = window.innerHeight / 2;
-let wrapVX = 150, wrapVY = 120, wrapRotation = 0, wrapRotationSpeed = 0.5;
+let player={x:24*SCALE,y:(GAME_H-PADDLE_H)/2,score:0};
+let cpu={x:GAME_W-24*SCALE-PADDLE_W,y:(GAME_H-PADDLE_H)/2,score:0};
+let ball={x:GAME_W/2,y:GAME_H/2,vx:220*SCALE,vy:60*SCALE,r:BALL_R};
+let paused=true,winner=null,aiEnabled=true,movementEnabled=true;
+let hue=0,waveTime=0;
+let wrapCenterX=window.innerWidth/2, wrapCenterY=window.innerHeight/2;
+let wrapVX=150, wrapVY=120, wrapRotation=0, wrapRotationSpeed=0.5;
+const scoreEl=document.getElementById('score');
+const aiToggle=document.getElementById('aiToggle');
+const movementToggle=document.getElementById('movementToggle');
+const resetBtn=document.getElementById('resetBtn');
+scoreEl.textContent=`Player ${player.score} — ${cpu.score} CPU`;
+
+function resetBall(toPlayer){
+  ball.x=GAME_W/2; ball.y=GAME_H/2;
+  const angle=(Math.random()*Math.PI/3 - Math.PI/6);
+  const speed=220*SCALE;
+  const dir=toPlayer?-1:1;
+  ball.vx=speed*Math.cos(angle)*dir;
+  ball.vy=speed*Math.sin(angle);
+}
+
+function resetGame(){
+  player.score=0; cpu.score=0; winner=null; paused=true;
+  scoreEl.textContent=`Player ${player.score} — ${cpu.score} CPU`;
+  resetBall(Math.random()<0.5);
+}
 
 // Helpers
-function clamp(v, a, b) { return Math.max(a, Math.min(b, v)); }
-function drawRoundedRect(x, y, w, h, r) {
+function clamp(v,a,b){return Math.max(a,Math.min(b,v));}
+function drawRoundedRect(x,y,w,h,r){
   ctx.beginPath();
-  ctx.moveTo(x + r, y);
-  ctx.arcTo(x + w, y, x + w, y + h, r);
-  ctx.arcTo(x + w, y + h, x, y + h, r);
-  ctx.arcTo(x, y + h, x, y, r);
-  ctx.arcTo(x, y, x + w, y, r);
-  ctx.closePath();
-  ctx.fill();
+  ctx.moveTo(x+r,y); ctx.arcTo(x+w,y,x+w,y+h,r);
+  ctx.arcTo(x+w,y+h,x,y+h,r); ctx.arcTo(x,y+h,x,y,r);
+  ctx.arcTo(x,y,x+w,y,r); ctx.closePath(); ctx.fill();
 }
-
-function drawWavyPaddle(x, y) {
-  const amplitude = 3 * SCALE, wavelength = 16 * SCALE, speed = 6;
-  const gradient = ctx.createLinearGradient(x, y, x, y + PADDLE_H);
-  gradient.addColorStop(0, `hsl(${hue},100%,60%)`);
-  gradient.addColorStop(0.5, `hsl(${(hue + 60) % 360},100%,50%)`);
-  gradient.addColorStop(1, `hsl(${(hue + 120) % 360},100%,40%)`);
+function drawWavyPaddle(x,y){
+  const amplitude=3*SCALE,wavelength=16*SCALE,speed=6;
+  const gradient=ctx.createLinearGradient(x,y,x,y+PADDLE_H);
+  gradient.addColorStop(0,`hsl(${hue},100%,60%)`);
+  gradient.addColorStop(0.5,`hsl(${(hue+60)%360},100%,50%)`);
+  gradient.addColorStop(1,`hsl(${(hue+120)%360},100%,40%)`);
   ctx.beginPath();
-  for (let i = 0; i <= PADDLE_H; i++) {
-    const offset = Math.sin((i / wavelength) + waveTime * 0.1 * speed) * amplitude;
-    ctx.lineTo(i === 0 ? x + offset : x + offset, y + i);
+  for(let i=0;i<=PADDLE_H;i++){
+    const offset=Math.sin((i/wavelength)+waveTime*0.1*speed)*amplitude;
+    ctx.lineTo(i===0?x+offset:x+offset,y+i);
   }
-  for (let i = PADDLE_H; i >= 0; i--) {
-    const offset = Math.sin((i / wavelength) + waveTime * 0.1 * speed + Math.PI) * amplitude;
-    ctx.lineTo(x + PADDLE_W + offset, y + i);
+  for(let i=PADDLE_H;i>=0;i--){
+    const offset=Math.sin((i/wavelength)+waveTime*0.1*speed+Math.PI)*amplitude;
+    ctx.lineTo(x+PADDLE_W+offset,y+i);
   }
-  ctx.closePath();
-  ctx.fillStyle = gradient;
-  ctx.fill();
+  ctx.closePath(); ctx.fillStyle=gradient; ctx.fill();
+}
+function draw(){
+  ctx.clearRect(0,0,GAME_W,GAME_H);
+  ctx.fillStyle='rgba(255,255,255,0.02)'; drawRoundedRect(0,0,GAME_W,GAME_H,8);
+  ctx.strokeStyle='rgba(255,255,255,0.08)'; ctx.lineWidth=2; ctx.setLineDash([8,12]);
+  ctx.beginPath(); ctx.moveTo(GAME_W/2,20); ctx.lineTo(GAME_W/2,GAME_H-20); ctx.stroke();
+  ctx.setLineDash([]);
+  drawWavyPaddle(player.x,player.y);
+  drawWavyPaddle(cpu.x,cpu.y);
+  const ballGrad=ctx.createRadialGradient(ball.x,ball.y,ball.r*0.2,ball.x,ball.y,ball.r);
+  ballGrad.addColorStop(0,`hsl(${hue},100%,60%)`);
+  ballGrad.addColorStop(0.5,`hsl(${(hue+60)%360},100%,50%)`);
+  ballGrad.addColorStop(1,`hsl(${(hue+120)%360},100%,40%)`);
+  ctx.beginPath(); ctx.fillStyle=ballGrad; ctx.arc(ball.x,ball.y,ball.r,0,Math.PI*2); ctx.fill();
+  ctx.fillStyle='rgba(230,238,248,0.9)'; ctx.font='28px system-ui, Comic Sans'; ctx.textAlign='center';
+  ctx.fillText(player.score,GAME_W*0.25,40); ctx.fillText(cpu.score,GAME_W*0.75,40);
 }
 
-function draw() {
-  ctx.clearRect(0, 0, GAME_W, GAME_H);
-  // Draw court background (black)
-  ctx.fillStyle = "#000";
-  ctx.fillRect(0, 0, GAME_W, GAME_H);
+// Step logic
+function step(dt){
+  if(paused||winner) return;
+  ball.x+=ball.vx*dt; ball.y+=ball.vy*dt;
 
-  // Court lines
-  ctx.strokeStyle = "#fff";
-  ctx.lineWidth = 2;
-  ctx.setLineDash([]);
-  ctx.strokeRect(0, 0, GAME_W, GAME_H); // border
-  ctx.setLineDash([8, 12]);
-  ctx.beginPath();
-  ctx.moveTo(GAME_W / 2, 20);
-  ctx.lineTo(GAME_W / 2, GAME_H - 20);
-  ctx.stroke();
-  ctx.setLineDash([]);
+  if(ball.y-BALL_R<0){ball.y=BALL_R; ball.vy*=-1;}
+  if(ball.y+BALL_R>GAME_H){ball.y=GAME_H-BALL_R; ball.vy*=-1;}
 
-  // Paddles and ball
-  drawWavyPaddle(player.x, player.y);
-  drawWavyPaddle(cpu.x, cpu.y);
-
-  const ballGrad = ctx.createRadialGradient(ball.x, ball.y, ball.r * 0.2, ball.x, ball.y, ball.r);
-  ballGrad.addColorStop(0, `hsl(${hue},100%,60%)`);
-  ballGrad.addColorStop(0.5, `hsl(${(hue + 60) % 360},100%,50%)`);
-  ballGrad.addColorStop(1, `hsl(${(hue + 120) % 360},100%,40%)`);
-  ctx.beginPath();
-  ctx.fillStyle = ballGrad;
-  ctx.arc(ball.x, ball.y, ball.r, 0, Math.PI * 2);
-  ctx.fill();
-
-  // Scores on top halves
-  ctx.fillStyle = '#fff';
-  ctx.font = '28px system-ui, Comic Sans';
-  ctx.textAlign = 'center';
-  ctx.fillText(player.score, GAME_W * 0.25, 40);
-  ctx.fillText(cpu.score, GAME_W * 0.75, 40);
-}
-
-// Step logic (same as before)
-function step(dt) {
-  if (paused) return;
-  ball.x += ball.vx * dt;
-  ball.y += ball.vy * dt;
-
-  if (ball.y - BALL_R < 0) { ball.y = BALL_R; ball.vy *= -1; }
-  if (ball.y + BALL_R > GAME_H) { ball.y = GAME_H - BALL_R; ball.vy *= -1; }
-
-  // Paddle collisions
-  if (ball.x - BALL_R < player.x + PADDLE_W && ball.y > player.y && ball.y < player.y + PADDLE_H) {
-    ball.x = player.x + PADDLE_W + BALL_R;
-    const rel = (ball.y - (player.y + PADDLE_H / 2)) / (PADDLE_H / 2);
-    const angle = rel * (Math.PI / 3);
-    const speed = Math.hypot(ball.vx, ball.vy) * 1.03;
-    ball.vx = speed * Math.cos(angle);
-    ball.vy = speed * Math.sin(angle);
+  // Paddle collisions with bonk
+  if(ball.x-BALL_R < player.x + PADDLE_W && ball.y>player.y && ball.y<player.y+PADDLE_H){
+    ball.x=player.x+PADDLE_W+BALL_R;
+    const rel=(ball.y-(player.y+PADDLE_H/2))/(PADDLE_H/2);
+    const angle=rel*(Math.PI/3);
+    const speed=Math.hypot(ball.vx,ball.vy)*1.03;
+    ball.vx=speed*Math.cos(angle); ball.vy=speed*Math.sin(angle);
     bonkSound.play();
   }
-  if (ball.x + BALL_R > cpu.x && ball.y > cpu.y && ball.y < cpu.y + PADDLE_H) {
-    ball.x = cpu.x - BALL_R;
-    const rel = (ball.y - (cpu.y + PADDLE_H / 2)) / (PADDLE_H / 2);
-    const angle = rel * (Math.PI / 3);
-    const speed = Math.hypot(ball.vx, ball.vy) * 1.03;
-    ball.vx = -speed * Math.cos(angle);
-    ball.vy = speed * Math.sin(angle);
+  if(ball.x+BALL_R > cpu.x && ball.y>cpu.y && ball.y<cpu.y+PADDLE_H){
+    ball.x=cpu.x-BALL_R;
+    const rel=(ball.y-(cpu.y+PADDLE_H/2))/(PADDLE_H/2);
+    const angle=rel*(Math.PI/3);
+    const speed=Math.hypot(ball.vx,ball.vy)*1.03;
+    ball.vx=-speed*Math.cos(angle); ball.vy=speed*Math.sin(angle);
     bonkSound.play();
   }
 
-  // Scoring
-  if (ball.x < 0) { cpu.score++; resetBall(true); }
-  if (ball.x > GAME_W) { player.score++; resetBall(false); }
+  if(ball.x<0){cpu.score++; scoreEl.textContent=`Player ${player.score} — ${cpu.score} CPU`; resetBall(true);}
+  if(ball.x>GAME_W){player.score++; scoreEl.textContent=`Player ${player.score} — ${cpu.score} CPU`; resetBall(false);}
 
-  // AI movement
-  if (aiEnabled) {
-    const target = ball.y - PADDLE_H / 2;
-    const diff = target - cpu.y;
-    const aiSpeed = 220 * SCALE + Math.min(160 * SCALE, Math.abs(ball.vx));
-    cpu.y += clamp(diff, -aiSpeed * dt, aiSpeed * dt);
-  }
-
-  player.y = clamp(player.y, 0, GAME_H - PADDLE_H);
-  cpu.y = clamp(cpu.y, 0, GAME_H - PADDLE_H);
-}
-
-function resetBall(toPlayer) {
-  ball.x = GAME_W / 2; ball.y = GAME_H / 2;
-  const angle = (Math.random() * Math.PI / 3 - Math.PI / 6);
-  const speed = 220 * SCALE;
-  const dir = toPlayer ? -1 : 1;
-  ball.vx = speed * Math.cos(angle) * dir;
-  ball.vy = speed * Math.sin(angle);
-}
-
-function resetGame() {
-  player.score = 0; cpu.score = 0; paused = true;
-  resetBall(Math.random() < 0.5);
+  if(aiEnabled){const target=ball.y-PADDLE_H/2; const diff=target-cpu.y; const aiSpeed=220*SCALE+Math.min(160*SCALE,Math.abs(ball.vx)); cpu.y+=clamp(diff,-aiSpeed*dt,aiSpeed*dt);}
+  player.y=clamp(player.y,0,GAME_H-PADDLE_H); cpu.y=clamp(cpu.y,0,GAME_H-PADDLE_H);
 }
 
 // Player input
-const keys = {};
-window.addEventListener('keydown', e => {
-  keys[e.key.toLowerCase()] = true;
-  if (e.code === 'Space') paused = !paused;
-});
-window.addEventListener('keyup', e => { keys[e.key.toLowerCase()] = false; });
-function handlePlayer(dt) {
-  const speed = 300 * SCALE;
-  if (keys['w'] || keys['arrowup']) player.y -= speed * dt;
-  if (keys['s'] || keys['arrowdown']) player.y += speed * dt;
-}
+const keys={};
+window.addEventListener('keydown',e=>{keys[e.key.toLowerCase()]=true; if(e.code==='Space'){paused=!paused;}});
+window.addEventListener('keyup',e=>{keys[e.key.toLowerCase()]=false;});
+function handlePlayer(dt){const speed=300*SCALE;if(keys['w']||keys['arrowup'])player.y-=speed*dt;if(keys['s']||keys['arrowdown'])player.y+=speed*dt;}
+canvas.addEventListener('mousemove',e=>{const rect=canvas.getBoundingClientRect(); player.y=((e.clientY-rect.top)/rect.height*GAME_H)-PADDLE_H/2;});
 
-// Rotation movement
-function getRotatedBBox(w, h, angle) {
-  const sin = Math.abs(Math.sin(angle)), cos = Math.abs(Math.cos(angle));
-  return { w: w * cos + h * sin, h: w * sin + h * cos };
-}
+// Rotated bounding box helper
+function getRotatedBBox(w,h,angle){const sin=Math.abs(Math.sin(angle)),cos=Math.abs(Math.cos(angle));return {w:w*cos+h*sin,h:w*sin+h*cos};}
 
 // Main loop
-let lastTime = null;
-function loop(ts) {
-  if (!lastTime) lastTime = ts;
-  const dt = (ts - lastTime) / 1000;
-  lastTime = ts;
-  waveTime += dt * 10;
-  hue = (hue + 120 * dt) % 360;
-  handlePlayer(dt);
-  step(dt);
-  draw();
+let lastTime=null;
+function loop(ts){
+  if(!lastTime) lastTime=ts;
+  const dt=(ts-lastTime)/1000; lastTime=ts;
+  waveTime+=dt*10; hue=(hue+120*dt)%360;
+  handlePlayer(dt); step(dt); draw();
 
-  if (movementEnabled) {
-    wrapRotation += 0.5 * dt;
-    const bbox = getRotatedBBox(GAME_W, GAME_H, wrapRotation);
-    const halfW = bbox.w / 2, halfH = bbox.h / 2;
-    wrapCenterX += 150 * dt;
-    wrapCenterY += 120 * dt;
-    if (wrapCenterX - halfW < 0 || wrapCenterX + halfW > window.innerWidth) wrapVX *= -1;
-    if (wrapCenterY - halfH < 0 || wrapCenterY + halfH > window.innerHeight) wrapVY *= -1;
+  if(movementEnabled){
+    wrapRotation+=wrapRotationSpeed*dt;
+    const bbox=getRotatedBBox(GAME_W,GAME_H,wrapRotation);
+    const halfW=bbox.w/2, halfH=bbox.h/2;
+
+    wrapCenterX+=wrapVX*dt; wrapCenterY+=wrapVY*dt;
+
+    if(wrapCenterX-halfW<0){wrapVX*=-1; wrapCenterX=halfW; playSpring('left');}
+    if(wrapCenterX+halfW>window.innerWidth){wrapVX*=-1; wrapCenterX=window.innerWidth-halfW; playSpring('right');}
+    if(wrapCenterY-halfH<0){wrapVY*=-1; wrapCenterY=halfH; playSpring('top');}
+    if(wrapCenterY+halfH>window.innerHeight){wrapVY*=-1; wrapCenterY=window.innerHeight-halfH; playSpring('bottom');}
   }
 
-  wrapEl.style.transform = `translate(${wrapCenterX - GAME_W / 2}px,${wrapCenterY - GAME_H / 2}px) rotate(${wrapRotation}rad)`;
+  wrapEl.style.transform=`translate(${wrapCenterX-GAME_W/2}px,${wrapCenterY-GAME_H/2}px) rotate(${wrapRotation}rad)`;
   requestAnimationFrame(loop);
 }
 
-// UI
-resetBtn.addEventListener('click', () => { resetGame(); draw(); });
+// UI buttons
+aiToggle.addEventListener('click',()=>{aiEnabled=!aiEnabled; aiToggle.textContent=aiEnabled?'AI On':'AI Off';});
+movementToggle.addEventListener('click',()=>{movementEnabled=!movementEnabled; movementToggle.textContent=movementEnabled?'Movement On':'Movement Off';});
+resetBtn.addEventListener('click',()=>{resetGame(); paused=true; draw();});
 
-resetGame();
-requestAnimationFrame(loop);
+resetGame(); requestAnimationFrame(loop);
 
 })();
 </script>
