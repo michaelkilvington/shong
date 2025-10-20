@@ -34,7 +34,6 @@ button{
   color:var(--fg);
   cursor:pointer;
   margin-right:4px;
-  font-family:"Comic Sans MS","Comic Sans",cursive;
 }
 </style>
 </head>
@@ -58,7 +57,6 @@ const ctx = canvas.getContext('2d');
 const wrapEl = document.querySelector('.wrap');
 
 const SCALE = 0.8;
-
 const GAME_W = 800 * SCALE, GAME_H = 450 * SCALE;
 const PADDLE_W = 12 * SCALE, PADDLE_H = 90 * SCALE, BALL_R = 8 * SCALE;
 
@@ -71,19 +69,30 @@ function fitCanvas(){
 fitCanvas();
 new ResizeObserver(fitCanvas).observe(canvas);
 
-// Pong state
+// Audio
+const bonkSound = new Audio('sound/bonk.wav');
+const springSound = new Audio('sound/spring.wav');
+const audioCtx = new (window.AudioContext || window.webkitAudioContext) || null;
+
+function playSpring(side){
+  if(!audioCtx) return springSound.play();
+  const track = audioCtx.createMediaElementSource(springSound.cloneNode());
+  const panner = audioCtx.createStereoPanner();
+  if(side==='left') panner.pan.value=-1;
+  if(side==='right') panner.pan.value=1;
+  if(side==='top'||side==='bottom') panner.pan.value=0;
+  track.connect(panner).connect(audioCtx.destination);
+  springSound.currentTime=0; springSound.play();
+}
+
+// Game state
 let player={x:24*SCALE,y:(GAME_H-PADDLE_H)/2,score:0};
 let cpu={x:GAME_W-24*SCALE-PADDLE_W,y:(GAME_H-PADDLE_H)/2,score:0};
 let ball={x:GAME_W/2,y:GAME_H/2,vx:220*SCALE,vy:60*SCALE,r:BALL_R};
 let paused=true,winner=null,aiEnabled=true,movementEnabled=true;
 let hue=0,waveTime=0;
-
-// DVD court state
 let wrapCenterX=window.innerWidth/2, wrapCenterY=window.innerHeight/2;
-let wrapVX=150, wrapVY=120;
-let wrapRotation=0, wrapRotationSpeed=0.5;
-
-// UI
+let wrapVX=150, wrapVY=120, wrapRotation=0, wrapRotationSpeed=0.5;
 const scoreEl=document.getElementById('score');
 const aiToggle=document.getElementById('aiToggle');
 const movementToggle=document.getElementById('movementToggle');
@@ -146,25 +155,36 @@ function draw(){
   ctx.fillStyle='rgba(230,238,248,0.9)'; ctx.font='28px system-ui, Comic Sans'; ctx.textAlign='center';
   ctx.fillText(player.score,GAME_W*0.25,40); ctx.fillText(cpu.score,GAME_W*0.75,40);
 }
+
+// Step logic
 function step(dt){
   if(paused||winner) return;
   ball.x+=ball.vx*dt; ball.y+=ball.vy*dt;
+
   if(ball.y-BALL_R<0){ball.y=BALL_R; ball.vy*=-1;}
   if(ball.y+BALL_R>GAME_H){ball.y=GAME_H-BALL_R; ball.vy*=-1;}
-  if(ball.x-BALL_R<player.x+PADDLE_W && ball.y>player.y && ball.y<player.y+PADDLE_H){
+
+  // Paddle collisions with bonk
+  if(ball.x-BALL_R < player.x + PADDLE_W && ball.y>player.y && ball.y<player.y+PADDLE_H){
     ball.x=player.x+PADDLE_W+BALL_R;
     const rel=(ball.y-(player.y+PADDLE_H/2))/(PADDLE_H/2);
-    const angle=rel*(Math.PI/3); const speed=Math.hypot(ball.vx,ball.vy)*1.03;
+    const angle=rel*(Math.PI/3);
+    const speed=Math.hypot(ball.vx,ball.vy)*1.03;
     ball.vx=speed*Math.cos(angle); ball.vy=speed*Math.sin(angle);
+    bonkSound.play();
   }
-  if(ball.x+BALL_R>cpu.x && ball.y>cpu.y && ball.y<cpu.y+PADDLE_H){
+  if(ball.x+BALL_R > cpu.x && ball.y>cpu.y && ball.y<cpu.y+PADDLE_H){
     ball.x=cpu.x-BALL_R;
     const rel=(ball.y-(cpu.y+PADDLE_H/2))/(PADDLE_H/2);
-    const angle=rel*(Math.PI/3); const speed=Math.hypot(ball.vx,ball.vy)*1.03;
+    const angle=rel*(Math.PI/3);
+    const speed=Math.hypot(ball.vx,ball.vy)*1.03;
     ball.vx=-speed*Math.cos(angle); ball.vy=speed*Math.sin(angle);
+    bonkSound.play();
   }
+
   if(ball.x<0){cpu.score++; scoreEl.textContent=`Player ${player.score} — ${cpu.score} CPU`; resetBall(true);}
   if(ball.x>GAME_W){player.score++; scoreEl.textContent=`Player ${player.score} — ${cpu.score} CPU`; resetBall(false);}
+
   if(aiEnabled){const target=ball.y-PADDLE_H/2; const diff=target-cpu.y; const aiSpeed=220*SCALE+Math.min(160*SCALE,Math.abs(ball.vx)); cpu.y+=clamp(diff,-aiSpeed*dt,aiSpeed*dt);}
   player.y=clamp(player.y,0,GAME_H-PADDLE_H); cpu.y=clamp(cpu.y,0,GAME_H-PADDLE_H);
 }
@@ -183,28 +203,24 @@ function getRotatedBBox(w,h,angle){const sin=Math.abs(Math.sin(angle)),cos=Math.
 let lastTime=null;
 function loop(ts){
   if(!lastTime) lastTime=ts;
-  const dt=(ts-lastTime)/1000;
-  lastTime=ts;
-
+  const dt=(ts-lastTime)/1000; lastTime=ts;
   waveTime+=dt*10; hue=(hue+120*dt)%360;
   handlePlayer(dt); step(dt); draw();
 
   if(movementEnabled){
     wrapRotation+=wrapRotationSpeed*dt;
-
     const bbox=getRotatedBBox(GAME_W,GAME_H,wrapRotation);
     const halfW=bbox.w/2, halfH=bbox.h/2;
 
     wrapCenterX+=wrapVX*dt; wrapCenterY+=wrapVY*dt;
 
-    // Bounce off page edges
-    if(wrapCenterX - halfW < 0){wrapVX*=-1; wrapCenterX=halfW;}
-    if(wrapCenterX + halfW > window.innerWidth){wrapVX*=-1; wrapCenterX=window.innerWidth - halfW;}
-    if(wrapCenterY - halfH < 0){wrapVY*=-1; wrapCenterY=halfH;}
-    if(wrapCenterY + halfH > window.innerHeight){wrapVY*=-1; wrapCenterY=window.innerHeight - halfH;}
+    if(wrapCenterX-halfW<0){wrapVX*=-1; wrapCenterX=halfW; playSpring('left');}
+    if(wrapCenterX+halfW>window.innerWidth){wrapVX*=-1; wrapCenterX=window.innerWidth-halfW; playSpring('right');}
+    if(wrapCenterY-halfH<0){wrapVY*=-1; wrapCenterY=halfH; playSpring('top');}
+    if(wrapCenterY+halfH>window.innerHeight){wrapVY*=-1; wrapCenterY=window.innerHeight-halfH; playSpring('bottom');}
   }
 
-  wrapEl.style.transform=`translate(${wrapCenterX - GAME_W/2}px,${wrapCenterY - GAME_H/2}px) rotate(${wrapRotation}rad)`;
+  wrapEl.style.transform=`translate(${wrapCenterX-GAME_W/2}px,${wrapCenterY-GAME_H/2}px) rotate(${wrapRotation}rad)`;
   requestAnimationFrame(loop);
 }
 
@@ -214,6 +230,7 @@ movementToggle.addEventListener('click',()=>{movementEnabled=!movementEnabled; m
 resetBtn.addEventListener('click',()=>{resetGame(); paused=true; draw();});
 
 resetGame(); requestAnimationFrame(loop);
+
 })();
 </script>
 </body>
