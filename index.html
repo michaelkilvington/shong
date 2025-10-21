@@ -93,13 +93,19 @@ button:hover { background:rgba(255,255,255,0.1); }
   </div>
 </div>
 
-<!-- SETTINGS PANE outside wrap so it stays stationery -->
+<!-- settings -->
 <div class="settings-pane" id="settingsPane">
   <h3>Settings</h3>
   <div class="setting">
     <label>
       <input type="checkbox" id="toggleScoreMotion" checked />
       Moving Score
+    </label>
+  </div>
+  <div class="setting">
+    <label>
+      <input type="checkbox" id="toggleSound" checked />
+      Sound
     </label>
   </div>
 </div>
@@ -115,6 +121,13 @@ const toggleAIBtn = document.getElementById('toggleAIBtn');
 
 const settingsPane = document.getElementById('settingsPane');
 const toggleScoreMotionCheckbox = document.getElementById('toggleScoreMotion');
+
+const toggleSoundCheckbox = document.getElementById('toggleSound');
+let soundEnabled = true;
+
+toggleSoundCheckbox.addEventListener('change', e => {
+  soundEnabled = e.target.checked;
+});
 
 let scoreMotionEnabled = true;
 
@@ -135,14 +148,19 @@ function createSoundPool(src, poolSize = 5) {
   const pool = Array.from({length: poolSize}, () => new Audio(src));
   let index = 0;
   return function playSound() {
+    if(!soundEnabled) return;
     pool[index].currentTime = 0;
     pool[index].play();
-    index = (index + 1) % poolSize;
+    index = (index + 1) % pool.length;
   };
 }
 
+
 const playPlayerPaddleSound = createSoundPool('sound/paddlehit1.wav', 5);
 const playCpuPaddleSound = createSoundPool('sound/paddlehit2.wav', 5);
+
+const pauseMenuMusic = new Audio('sound/pausemenumusic.mp3');
+pauseMenuMusic.loop = true; 
 
 let player = { x: 24 * SCALE, y: (GAME_H - PADDLE_H) / 2, score: 0 };
 let cpu = { x: GAME_W - 24 * SCALE - PADDLE_W, y: (GAME_H - PADDLE_H) / 2, score: 0 };
@@ -325,7 +343,14 @@ window.addEventListener('keydown', e => {
   }
 
   if(e.key.toLowerCase() === 'p'){
-    settingsPane.style.display = settingsPane.style.display === 'block' ? 'none' : 'block';
+    if(settingsPane.style.display === 'block'){
+      settingsPane.style.display = 'none';
+      pauseMenuMusic.pause();
+      pauseMenuMusic.currentTime = 0;
+    } else {
+      settingsPane.style.display = 'block';
+      if(soundEnabled) pauseMenuMusic.play();
+    }
   }
 });
 
