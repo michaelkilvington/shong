@@ -325,8 +325,10 @@ function step(dt){
   }
   if(ball.x<0){cpu.score++; resetBall(true);}
   if(ball.x>GAME_W){player.score++; resetBall(false);}
+
   //CPU
   if(aiEnabled){
+    // AI code for CPU paddle
     const target=ball.y-PADDLE_H/2;
     const diff=target-cpu.y;
     const baseSpeed=150*SCALE;
@@ -341,17 +343,24 @@ function step(dt){
   cpu.y=clamp(cpu.y,0,GAME_H-PADDLE_H);
 }
 
-function modalActive() {
-  return showTutorial || settingsOpen;
-}
-
 function handlePlayer(dt){
   if(ballPaused || modalActive()) return;
-  const speed=300*SCALE;
-  if(keys['w']||keys['arrowup'])player.y-=speed*dt;
-  if(keys['s']||keys['arrowdown'])player.y+=speed*dt;
-}
+  const speed = 300*SCALE;
 
+  // Left paddle (W/S) always controls left paddle
+  if(keys['w']) player.y -= speed * dt;
+  if(keys['s']) player.y += speed * dt;
+
+  // Right paddle only uses arrow keys if AI is off
+  if(!aiEnabled){
+    if(keys['arrowup']) cpu.y -= speed * dt;
+    if(keys['arrowdown']) cpu.y += speed * dt;
+  }
+
+  // Clamp positions
+  player.y = clamp(player.y, 0, GAME_H - PADDLE_H);
+  cpu.y = clamp(cpu.y, 0, GAME_H - PADDLE_H);
+}
 
 function resetBall(toPlayer){
   ball.x=GAME_W/2; ball.y=GAME_H/2;
