@@ -58,7 +58,6 @@ function fitCanvas() {
 fitCanvas();
 new ResizeObserver(fitCanvas).observe(canvas);
 
-// --- Paddle sounds (overlapping-safe) ---
 function createSoundPool(src, poolSize = 5) {
   const pool = Array.from({length: poolSize}, () => new Audio(src));
   let index = 0;
@@ -87,7 +86,6 @@ let cpuScore    = { x: GAME_W*0.75, y:40, vx:-50, vy:40, angle:0, angularVelocit
 
 function clamp(v, a, b) { return Math.max(a, Math.min(b, v)); }
 
-// --- Offscreen paddle cache ---
 const paddleCache = document.createElement('canvas');
 paddleCache.width = PADDLE_W + 6 * SCALE;
 paddleCache.height = PADDLE_H;
@@ -123,7 +121,6 @@ function drawWavyPaddle(x, y){
   ctx.restore();
 }
 
-// --- Offscreen ball cache ---
 const ballCache = document.createElement('canvas');
 ballCache.width = BALL_R*2 + 4;
 ballCache.height = BALL_R*2 + 4;
@@ -175,7 +172,7 @@ function draw(){
 }
 
 function step(dt){
-  if(ballPaused) return; // only pauses gameplay
+  if(ballPaused) return;
   ball.x+=ball.vx*dt; ball.y+=ball.vy*dt;
   if(ball.y-BALL_R<0){ball.y=BALL_R; ball.vy*=-1;}
   if(ball.y+BALL_R>GAME_H){ball.y=GAME_H-BALL_R; ball.vy*=-1;}
@@ -202,8 +199,27 @@ function step(dt){
 
   if(ball.x<0){cpu.score++; resetBall(true);}
   if(ball.x>GAME_W){player.score++; resetBall(false);}
-  if(aiEnabled){const target=ball.y-PADDLE_H/2; const diff=target-cpu.y; const aiSpeed=220*SCALE+Math.min(160*SCALE,Math.abs(ball.vx)); cpu.y+=clamp(diff,-aiSpeed*dt,aiSpeed*dt);}
-  player.y=clamp(player.y,0,GAME_H-PADDLE_H); cpu.y=clamp(cpu.y,0,GAME_H-PADDLE_H);
+
+  //CPU 
+  if(aiEnabled){
+    const target = ball.y - PADDLE_H/2;
+    const diff = target - cpu.y;
+    const baseSpeed = 150 * SCALE;
+    const speedBonus = Math.min(90 * SCALE, Math.abs(ball.vx));
+    const aiSpeed = baseSpeed + speedBonus;
+
+    const misjudgeChance = 0.15;
+    let adjustment = 1;
+    if(Math.random() < misjudgeChance){
+      adjustment = -0.5 + Math.random();
+    }
+
+    const reaction = 0.9 + Math.random()*0.3;
+    cpu.y += clamp(diff, -aiSpeed*dt*reaction*adjustment, aiSpeed*dt*reaction*adjustment);
+  }
+
+  player.y=clamp(player.y,0,GAME_H-PADDLE_H);
+  cpu.y=clamp(cpu.y,0,GAME_H-PADDLE_H);
 }
 
 function handlePlayer(dt){
@@ -220,11 +236,9 @@ function resetBall(toPlayer){
   ball.vx=speed*Math.cos(angle)*dir; ball.vy=speed*Math.sin(angle);
 }
 
-// --- Key Handling ---
 const keys = {};
 window.addEventListener('keydown', e => {
   keys[e.key.toLowerCase()] = true;
-
   if(e.code==='Space'){
     e.preventDefault();
     if(firstStart){
@@ -251,11 +265,9 @@ function loop(ts){
   updatePaddleCache((hue + 30) % 360);
   updateBallCache(hue);
 
-  // --- Gameplay (paused by ballPaused) ---
   handlePlayer(dt); 
   step(dt);
 
-  // --- UI movement (independent of ballPaused) ---
   if(movementEnabled && !firstStart){
     wrapRotation += wrapRotationSpeed*dt;
     const bbox=getRotatedBBox(GAME_W,GAME_H,wrapRotation); const halfW=bbox.w/2, halfH=bbox.h/2;
@@ -272,7 +284,6 @@ function loop(ts){
   requestAnimationFrame(loop);
 }
 
-// --- Button toggles ---
 resetBtn.addEventListener('click',()=>{location.reload();});
 toggleMoveBtn.addEventListener('click',()=>{movementEnabled=!movementEnabled;});
 toggleAIBtn.addEventListener('click',()=>{aiEnabled=!aiEnabled;});
