@@ -152,8 +152,36 @@ function drawWavyPaddle(x, y) {
   ctx.fill();
 }
 
+function updateScoreMotion(dt){
+  if (!movementEnabled || firstStart) return;
+  const halfW = GAME_W / 2;
+  const margin = 20;
+
+  // Player score
+  playerScore.x += playerScore.vx*dt;
+  playerScore.y += playerScore.vy*dt;
+  playerScore.angle += playerScore.angularVelocity*dt;
+  if(playerScore.x - margin < 0){ playerScore.x = margin; playerScore.vx*=-1; }
+  if(playerScore.x + margin > halfW){ playerScore.x = halfW - margin; playerScore.vx*=-1; }
+  if(playerScore.y - margin < 0){ playerScore.y = margin; playerScore.vy*=-1; }
+  if(playerScore.y + margin > GAME_H){ playerScore.y = GAME_H - margin; playerScore.vy*=-1; }
+
+  // CPU score
+  cpuScore.x += cpuScore.vx*dt;
+  cpuScore.y += cpuScore.vy*dt;
+  cpuScore.angle += cpuScore.angularVelocity*dt;
+  if(cpuScore.x - margin < halfW){ cpuScore.x = halfW + margin; cpuScore.vx*=-1; }
+  if(cpuScore.x + margin > GAME_W){ cpuScore.x = GAME_W - margin; cpuScore.vx*=-1; }
+  if(cpuScore.y - margin < 0){ cpuScore.y = margin; cpuScore.vy*=-1; }
+  if(cpuScore.y + margin > GAME_H){ cpuScore.y = GAME_H - margin; cpuScore.vy*=-1; }
+}
+
 function draw() {
-  ctx.clearRect(0, 0, GAME_W, GAME_H);
+  // Clear fully each frame
+  ctx.save();
+  ctx.setTransform(1, 0, 0, 1, 0, 0);
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+  ctx.restore();
 
   // Court
   ctx.fillStyle = "#000";
@@ -162,7 +190,7 @@ function draw() {
   ctx.lineWidth = 2;
   ctx.strokeRect(0, 0, GAME_W, GAME_H);
 
-  // Center dashed line
+  // Center line
   ctx.setLineDash([8,12]);
   ctx.beginPath();
   ctx.moveTo(GAME_W/2, 20);
@@ -180,64 +208,54 @@ function draw() {
   ballGrad.addColorStop(1, `hsl(${(hue+120)%360},100%,40%)`);
   ctx.beginPath();
   ctx.fillStyle = ballGrad;
-  ctx.arc(ball.x, ball.y, ball.r, 0, Math.PI*2);
+  ctx.arc(Math.round(ball.x), Math.round(ball.y), ball.r, 0, Math.PI*2);
   ctx.fill();
 
   // Scores
   ctx.fillStyle = "#fff";
   ctx.font = `${SCORE_FONT_SIZE}px "Comic Sans MS"`;
-  ctx.textAlign = "center"; ctx.textBaseline = "middle";
+  ctx.textAlign = "center";
+  ctx.textBaseline = "middle";
 
   ctx.save();
-  ctx.translate(playerScore.x, playerScore.y);
+  ctx.translate(Math.round(playerScore.x), Math.round(playerScore.y));
   ctx.rotate(playerScore.angle);
   ctx.fillText(player.score, 0, 0);
   ctx.restore();
 
   ctx.save();
-  ctx.translate(cpuScore.x, cpuScore.y);
+  ctx.translate(Math.round(cpuScore.x), Math.round(cpuScore.y));
   ctx.rotate(cpuScore.angle);
   ctx.fillText(cpu.score, 0, 0);
   ctx.restore();
 }
 
-function step(dt) {
+// --- The rest of the game logic remains unchanged ---
+function step(dt){
   if(ballPaused) return;
-  ball.x += ball.vx * dt;
-  ball.y += ball.vy * dt;
-
-  if (ball.y - BALL_R < 0) { ball.y = BALL_R; ball.vy *= -1; }
-  if (ball.y + BALL_R > GAME_H) { ball.y = GAME_H - BALL_R; ball.vy *= -1; }
-
-  if (ball.x - BALL_R < player.x + PADDLE_W && ball.y > player.y && ball.y < player.y + PADDLE_H) {
-    ball.x = player.x + PADDLE_W + BALL_R;
-    const rel = (ball.y - (player.y + PADDLE_H/2)) / (PADDLE_H/2);
-    const angle = rel * (Math.PI/3);
-    const speed = Math.hypot(ball.vx, ball.vy) * 1.03;
-    ball.vx = speed*Math.cos(angle); ball.vy = speed*Math.sin(angle);
+  ball.x += ball.vx*dt; ball.y += ball.vy*dt;
+  if(ball.y-BALL_R<0){ball.y=BALL_R; ball.vy*=-1;}
+  if(ball.y+BALL_R>GAME_H){ball.y=GAME_H-BALL_R; ball.vy*=-1;}
+  if(ball.x-BALL_R < player.x + PADDLE_W && ball.y>player.y && ball.y<player.y+PADDLE_H){
+    ball.x=player.x+PADDLE_W+BALL_R;
+    const rel=(ball.y-(player.y+PADDLE_H/2))/(PADDLE_H/2);
+    const angle=rel*(Math.PI/3);
+    const speed=Math.hypot(ball.vx,ball.vy)*1.03;
+    ball.vx=speed*Math.cos(angle); ball.vy=speed*Math.sin(angle);
     bonkSound.play();
   }
-  if (ball.x + BALL_R > cpu.x && ball.y > cpu.y && ball.y < cpu.y + PADDLE_H) {
-    ball.x = cpu.x - BALL_R;
-    const rel = (ball.y - (cpu.y + PADDLE_H/2)) / (PADDLE_H/2);
-    const angle = rel * (Math.PI/3);
-    const speed = Math.hypot(ball.vx, ball.vy) * 1.03;
-    ball.vx = -speed*Math.cos(angle); ball.vy = speed*Math.sin(angle);
+  if(ball.x+BALL_R > cpu.x && ball.y>cpu.y && ball.y<cpu.y+PADDLE_H){
+    ball.x=cpu.x-BALL_R;
+    const rel=(ball.y-(cpu.y+PADDLE_H/2))/(PADDLE_H/2);
+    const angle=rel*(Math.PI/3);
+    const speed=Math.hypot(ball.vx,ball.vy)*1.03;
+    ball.vx=-speed*Math.cos(angle); ball.vy=speed*Math.sin(angle);
     bonkSound.play();
   }
-
-  if (ball.x < 0) { cpu.score++; resetBall(true); }
-  if (ball.x > GAME_W) { player.score++; resetBall(false); }
-
-  if (aiEnabled) {
-    const target = ball.y - PADDLE_H/2;
-    const diff = target - cpu.y;
-    const aiSpeed = 220*SCALE + Math.min(160*SCALE, Math.abs(ball.vx));
-    cpu.y += clamp(diff,-aiSpeed*dt,aiSpeed*dt);
-  }
-
-  player.y = clamp(player.y, 0, GAME_H-PADDLE_H);
-  cpu.y = clamp(cpu.y, 0, GAME_H-PADDLE_H);
+  if(ball.x<0){cpu.score++; resetBall(true);}
+  if(ball.x>GAME_W){player.score++; resetBall(false);}
+  if(aiEnabled){const target=ball.y-PADDLE_H/2; const diff=target-cpu.y; const aiSpeed=220*SCALE+Math.min(160*SCALE,Math.abs(ball.vx)); cpu.y+=clamp(diff,-aiSpeed*dt,aiSpeed*dt);}
+  player.y=clamp(player.y,0,GAME_H-PADDLE_H); cpu.y=clamp(cpu.y,0,GAME_H-PADDLE_H);
 }
 
 function handlePlayer(dt){
@@ -247,50 +265,30 @@ function handlePlayer(dt){
   if(keys['s']||keys['arrowdown'])player.y+=speed*dt;
 }
 
-function resetBall(toPlayer) {
-  ball.x = GAME_W/2; ball.y = GAME_H/2;
-  const angle = (Math.random()*Math.PI/3 - Math.PI/6);
-  const speed = 220*SCALE;
-  const dir = toPlayer?-1:1;
-  ball.vx = speed*Math.cos(angle)*dir;
-  ball.vy = speed*Math.sin(angle);
+function resetBall(toPlayer){
+  ball.x=GAME_W/2; ball.y=GAME_H/2;
+  const angle=(Math.random()*Math.PI/3 - Math.PI/6);
+  const speed=220*SCALE;
+  const dir=toPlayer?-1:1;
+  ball.vx=speed*Math.cos(angle)*dir;
+  ball.vy=speed*Math.sin(angle);
 }
 
-const keys = {};
+const keys={};
 window.addEventListener('keydown', e => {
-  keys[e.key.toLowerCase()] = true;
-  if(e.code === 'Space'){
-    if(firstStart){
-      firstStart = false;
-      ballPaused = false;
-    } else {
-      ballPaused = !ballPaused;
-    }
+  keys[e.key.toLowerCase()]=true;
+  if(e.code==='Space'){
+    if(firstStart){firstStart=false; ballPaused=false;}
+    else{ballPaused=!ballPaused;}
   }
 });
-window.addEventListener('keyup', e => { keys[e.key.toLowerCase()] = false; });
+window.addEventListener('keyup', e => keys[e.key.toLowerCase()]=false);
 
 function getRotatedBBox(w,h,angle){const sin=Math.abs(Math.sin(angle)),cos=Math.abs(Math.cos(angle));return {w:w*cos+h*sin,h:w*sin+h*cos};}
 
-function updateScoreMotion(dt){
-  if(!movementEnabled || firstStart) return;
-  const halfW = GAME_W/2;
-  playerScore.x += playerScore.vx*dt; playerScore.y += playerScore.vy*dt; playerScore.angle += playerScore.angularVelocity*dt;
-  if(playerScore.x-20<0){playerScore.x=20;playerScore.vx*=-1;}
-  if(playerScore.x+20>halfW){playerScore.x=halfW-20;playerScore.vx*=-1;}
-  if(playerScore.y-28<0){playerScore.y=28;playerScore.vy*=-1;}
-  if(playerScore.y+10>GAME_H){playerScore.y=GAME_H-10;playerScore.vy*=-1;}
-
-  cpuScore.x += cpuScore.vx*dt; cpuScore.y += cpuScore.vy*dt; cpuScore.angle += cpuScore.angularVelocity*dt;
-  if(cpuScore.x-20<halfW){cpuScore.x=halfW+20;cpuScore.vx*=-1;}
-  if(cpuScore.x+20>GAME_W){cpuScore.x=GAME_W-20;cpuScore.vx*=-1;}
-  if(cpuScore.y-28<0){cpuScore.y=28;cpuScore.vy*=-1;}
-  if(cpuScore.y+10>GAME_H){cpuScore.y=GAME_H-10;cpuScore.vy*=-1;}
-}
-
 let lastTime=null;
 function loop(ts){
-  if(!lastTime)lastTime=ts;
+  if(!lastTime) lastTime=ts;
   const dt=(ts-lastTime)/1000; lastTime=ts;
 
   waveTime+=dt*10; hue=(hue+120*dt)%360;
@@ -305,7 +303,6 @@ function loop(ts){
     if(wrapCenterX-halfW<0){wrapVX*=-1; wrapCenterX=halfW;}
     if(wrapCenterX+halfW>window.innerWidth){wrapVX*=-1; wrapCenterX=window.innerWidth-halfW;}
     if(wrapCenterY-halfH<0){wrapVY*=-1; wrapCenterY=halfH;}
-    // Fixed bottom edge collision
     if(wrapCenterY+halfH>window.innerHeight){wrapVY*=-1; wrapCenterY=window.innerHeight-halfH;}
 
     updateScoreMotion(dt);
@@ -317,9 +314,9 @@ function loop(ts){
 }
 
 // Reset reloads the page
-resetBtn.addEventListener('click', () => { location.reload(); });
-toggleMoveBtn.addEventListener('click', ()=>{movementEnabled=!movementEnabled;});
-toggleAIBtn.addEventListener('click', ()=>{aiEnabled=!aiEnabled;});
+resetBtn.addEventListener('click',()=>{location.reload();});
+toggleMoveBtn.addEventListener('click',()=>{movementEnabled=!movementEnabled;});
+toggleAIBtn.addEventListener('click',()=>{aiEnabled=!aiEnabled;});
 
 requestAnimationFrame(loop);
 })();
