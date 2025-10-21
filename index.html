@@ -11,68 +11,17 @@
   --line-color: #fff;
   --fg: #e6eef8;
 }
-
-html, body {
-  margin: 0;
-  height: 100%;
-  overflow: hidden;
-}
-
-body {
-  background: var(--viewport-bg);
-  font-family: "Comic Sans MS", "Comic Sans", cursive;
-  position: relative;
-  color: var(--fg);
-}
-
-.wrap {
-  width: 640px;
-  height: 360px;
-  position: absolute;
-  transform-origin: center center;
-}
-
-canvas {
-  display: block;
-  width: 100%;
-  height: 100%;
-  background: var(--court-bg);
-  border-radius: 10px;
-  border: 2px solid var(--line-color);
-  box-shadow: 0 8px 30px rgba(0, 0, 0, 0.6);
-}
-
-/* Button bar under the court */
-.controls {
-  position: absolute;
-  bottom: -46px; /* slightly below the court */
-  left: 0;
-  width: 100%;
-  display: flex;
-  justify-content: space-between;
-  padding: 0 8px;
-  font-family: "Comic Sans MS", "Comic Sans", cursive;
-}
-
-.left-controls {
-  display: flex;
-  gap: 6px;
-}
-
+html, body { margin:0; height:100%; overflow:hidden; }
+body { background: var(--viewport-bg); font-family: "Comic Sans MS", cursive; position: relative; color: var(--fg); }
+.wrap { width:640px; height:360px; position:absolute; transform-origin:center center; }
+canvas { display:block; width:100%; height:100%; background: var(--court-bg); border-radius:10px; border:2px solid var(--line-color); box-shadow:0 8px 30px rgba(0,0,0,0.6); }
+.controls { position:absolute; bottom:-46px; left:0; width:100%; display:flex; justify-content:space-between; padding:0 8px; }
+.left-controls { display:flex; gap:6px; }
 button {
-  background: transparent;
-  border: 1px solid rgba(230,238,248,0.15);
-  padding: 6px 10px;
-  border-radius: 8px;
-  color: var(--fg);
-  cursor: pointer;
-  backdrop-filter: blur(4px);
-  font-size: 14px;
-  font-family: "Comic Sans MS", "Comic Sans", cursive;
+  background:transparent; border:1px solid rgba(230,238,248,0.15); padding:6px 10px; border-radius:8px; color: var(--fg); cursor:pointer;
+  backdrop-filter: blur(4px); font-size:14px; font-family:"Comic Sans MS", cursive;
 }
-button:hover {
-  background: rgba(255,255,255,0.1);
-}
+button:hover { background:rgba(255,255,255,0.1); }
 </style>
 </head>
 <body>
@@ -109,197 +58,236 @@ function fitCanvas() {
 fitCanvas();
 new ResizeObserver(fitCanvas).observe(canvas);
 
-// Audio setup
-const bonkSound = new Audio('sound/bonk.wav');
-const springSound = new Audio('sound/spring.wav');
+function createSoundPool(src, poolSize = 5) {
+  const pool = Array.from({length: poolSize}, () => new Audio(src));
+  let index = 0;
+  return function playSound() {
+    pool[index].currentTime = 0;
+    pool[index].play();
+    index = (index + 1) % poolSize;
+  };
+}
 
-// Game state
+const playPlayerPaddleSound = createSoundPool('sound/paddlehit1.wav', 5);
+const playCpuPaddleSound = createSoundPool('sound/paddlehit2.wav', 5);
+
 let player = { x: 24 * SCALE, y: (GAME_H - PADDLE_H) / 2, score: 0 };
 let cpu = { x: GAME_W - 24 * SCALE - PADDLE_W, y: (GAME_H - PADDLE_H) / 2, score: 0 };
 let ball = { x: GAME_W / 2, y: GAME_H / 2, vx: 220 * SCALE, vy: 60 * SCALE, r: BALL_R };
-let paused = true, aiEnabled = true, movementEnabled = true;
-let hue = 0, waveTime = 0;
+
+let firstStart = true, ballPaused = true, aiEnabled = true, movementEnabled = true, hue = 0, waveTime = 0;
+
 let wrapCenterX = window.innerWidth / 2, wrapCenterY = window.innerHeight / 2;
 let wrapVX = 150, wrapVY = 120, wrapRotation = 0, wrapRotationSpeed = 0.5;
 
+const SCORE_FONT_SIZE = 28;
+let playerScore = { x: GAME_W*0.25, y:40, vx:40, vy:30, angle:0, angularVelocity:1.5 };
+let cpuScore    = { x: GAME_W*0.75, y:40, vx:-50, vy:40, angle:0, angularVelocity:-2 };
+
 function clamp(v, a, b) { return Math.max(a, Math.min(b, v)); }
-function drawRoundedRect(x, y, w, h, r) {
-  ctx.beginPath();
-  ctx.moveTo(x + r, y);
-  ctx.arcTo(x + w, y, x + w, y + h, r);
-  ctx.arcTo(x + w, y + h, x, y + h, r);
-  ctx.arcTo(x, y + h, x, y, r);
-  ctx.arcTo(x, y, x + w, y, r);
-  ctx.closePath();
-  ctx.fill();
-}
 
-function drawWavyPaddle(x, y) {
-  const amplitude = 3 * SCALE, wavelength = 16 * SCALE;
-  const gradient = ctx.createLinearGradient(x, y, x, y + PADDLE_H);
+const paddleCache = document.createElement('canvas');
+paddleCache.width = PADDLE_W + 6 * SCALE;
+paddleCache.height = PADDLE_H;
+const paddleCtx = paddleCache.getContext('2d');
+
+function updatePaddleCache(hue) {
+  const gradient = paddleCtx.createLinearGradient(0,0,0,PADDLE_H);
   gradient.addColorStop(0, `hsl(${hue},100%,60%)`);
-  gradient.addColorStop(0.5, `hsl(${(hue + 60) % 360},100%,50%)`);
-  gradient.addColorStop(1, `hsl(${(hue + 120) % 360},100%,40%)`);
+  gradient.addColorStop(0.5, `hsl(${(hue+60)%360},100%,50%)`);
+  gradient.addColorStop(1, `hsl(${(hue+120)%360},100%,40%)`);
+  paddleCtx.fillStyle = gradient;
+  paddleCtx.fillRect(0,0,paddleCache.width,paddleCache.height);
+}
+
+function drawWavyPaddle(x, y){
+  const amplitude = 3 * SCALE, wavelength = 16 * SCALE;
+  const steps = 8; 
   ctx.beginPath();
-  for (let i = 0; i <= PADDLE_H; i++) {
-    const offset = Math.sin((i / wavelength) + waveTime * 0.6) * amplitude;
-    ctx.lineTo(i === 0 ? x + offset : x + offset, y + i);
+  for(let i=0;i<=steps;i++){
+    const iy = (i/steps)*PADDLE_H;
+    const offset = Math.sin((iy/wavelength)+waveTime*0.6)*amplitude;
+    ctx.lineTo(x + offset, y + iy);
   }
-  for (let i = PADDLE_H; i >= 0; i--) {
-    const offset = Math.sin((i / wavelength) + waveTime * 0.6 + Math.PI) * amplitude;
-    ctx.lineTo(x + PADDLE_W + offset, y + i);
+  for(let i=steps;i>=0;i--){
+    const iy = (i/steps)*PADDLE_H;
+    const offset = Math.sin((iy/wavelength)+waveTime*0.6+Math.PI)*amplitude;
+    ctx.lineTo(x+PADDLE_W+offset, y + iy);
   }
   ctx.closePath();
-  ctx.fillStyle = gradient;
-  ctx.fill();
+  ctx.save();
+  ctx.clip();
+  ctx.drawImage(paddleCache, x, y);
+  ctx.restore();
 }
 
-function draw() {
-  ctx.clearRect(0, 0, GAME_W, GAME_H);
-  ctx.fillStyle = "#000";
-  ctx.fillRect(0, 0, GAME_W, GAME_H);
+const ballCache = document.createElement('canvas');
+ballCache.width = BALL_R*2 + 4;
+ballCache.height = BALL_R*2 + 4;
+const ballCtx = ballCache.getContext('2d');
 
-  // Court lines
-  ctx.strokeStyle = "#fff";
-  ctx.lineWidth = 2;
-  ctx.setLineDash([]);
-  ctx.strokeRect(0, 0, GAME_W, GAME_H);
-  ctx.setLineDash([8, 12]);
-  ctx.beginPath();
-  ctx.moveTo(GAME_W / 2, 20);
-  ctx.lineTo(GAME_W / 2, GAME_H - 20);
-  ctx.stroke();
-  ctx.setLineDash([]);
-
-  drawWavyPaddle(player.x, player.y);
-  drawWavyPaddle(cpu.x, cpu.y);
-
-  const ballGrad = ctx.createRadialGradient(ball.x, ball.y, ball.r * 0.2, ball.x, ball.y, ball.r);
-  ballGrad.addColorStop(0, `hsl(${hue},100%,60%)`);
-  ballGrad.addColorStop(0.5, `hsl(${(hue + 60) % 360},100%,50%)`);
-  ballGrad.addColorStop(1, `hsl(${(hue + 120) % 360},100%,40%)`);
-  ctx.beginPath();
-  ctx.fillStyle = ballGrad;
-  ctx.arc(ball.x, ball.y, ball.r, 0, Math.PI * 2);
-  ctx.fill();
-
-  // Scores
-  ctx.fillStyle = '#fff';
-  ctx.font = '28px "Comic Sans MS", "Comic Sans", cursive';
-  ctx.textAlign = 'center';
-  ctx.fillText(player.score, GAME_W * 0.25, 40);
-  ctx.fillText(cpu.score, GAME_W * 0.75, 40);
+function updateBallCache(hue){
+  const r = BALL_R;
+  const center = r + 2;
+  const grad = ballCtx.createRadialGradient(center, center, r*0.2, center, center, r);
+  grad.addColorStop(0, `hsl(${hue},100%,60%)`);
+  grad.addColorStop(0.5, `hsl(${(hue+60)%360},100%,50%)`);
+  grad.addColorStop(1, `hsl(${(hue+120)%360},100%,40%)`);
+  ballCtx.clearRect(0,0,ballCache.width,ballCache.height);
+  ballCtx.fillStyle = grad;
+  ballCtx.beginPath();
+  ballCtx.arc(center, center, r, 0, Math.PI*2);
+  ballCtx.fill();
 }
 
-function step(dt) {
-  if (paused) return;
-  ball.x += ball.vx * dt;
-  ball.y += ball.vy * dt;
+function updateScoreMotion(dt){
+  if(!movementEnabled || firstStart) return;
+  const halfW = GAME_W/2, margin=20;
+  [playerScore,cpuScore].forEach((s,i)=>{
+    s.x+=s.vx*dt; s.y+=s.vy*dt; s.angle+=s.angularVelocity*dt;
+    let minX=i===0?0:halfW, maxX=i===0?halfW:GAME_W;
+    if(s.x-margin<minX){s.x=minX+margin;s.vx*=-1;}
+    if(s.x+margin>maxX){s.x=maxX-margin;s.vx*=-1;}
+    if(s.y-margin<0){s.y=margin;s.vy*=-1;}
+    if(s.y+margin>GAME_H){s.y=GAME_H-margin;s.vy*=-1;}
+  });
+}
 
-  if (ball.y - BALL_R < 0) { ball.y = BALL_R; ball.vy *= -1; }
-  if (ball.y + BALL_R > GAME_H) { ball.y = GAME_H - BALL_R; ball.vy *= -1; }
+function draw(){
+  ctx.clearRect(0,0,canvas.width,canvas.height);
+  ctx.fillStyle="#000"; ctx.fillRect(0,0,GAME_W,GAME_H);
+  ctx.strokeStyle="#fff"; ctx.lineWidth=2; ctx.strokeRect(0,0,GAME_W,GAME_H);
+  ctx.setLineDash([8,12]);
+  ctx.beginPath(); ctx.moveTo(GAME_W/2,20); ctx.lineTo(GAME_W/2,GAME_H-20); ctx.stroke();
+  ctx.setLineDash([]);
+  drawWavyPaddle(player.x,player.y);
+  drawWavyPaddle(cpu.x,cpu.y);
+  ctx.drawImage(ballCache, Math.round(ball.x - BALL_R - 2), Math.round(ball.y - BALL_R - 2));
 
-  if (ball.x - BALL_R < player.x + PADDLE_W && ball.y > player.y && ball.y < player.y + PADDLE_H) {
+  ctx.fillStyle="#fff"; ctx.font=`${SCORE_FONT_SIZE}px "Comic Sans MS"`; ctx.textAlign="center"; ctx.textBaseline="middle";
+  [playerScore,cpuScore].forEach((s,i)=>{
+    ctx.save(); ctx.translate(Math.round(s.x),Math.round(s.y)); ctx.rotate(s.angle); 
+    ctx.fillText(i===0?player.score:cpu.score,0,0); ctx.restore();
+  });
+}
+
+function step(dt){
+  if(ballPaused) return;
+  ball.x+=ball.vx*dt; ball.y+=ball.vy*dt;
+  if(ball.y-BALL_R<0){ball.y=BALL_R; ball.vy*=-1;}
+  if(ball.y+BALL_R>GAME_H){ball.y=GAME_H-BALL_R; ball.vy*=-1;}
+
+  if(ball.x-BALL_R < player.x+PADDLE_W && ball.y>player.y && ball.y<player.y+PADDLE_H){
     ball.x = player.x + PADDLE_W + BALL_R;
-    const rel = (ball.y - (player.y + PADDLE_H / 2)) / (PADDLE_H / 2);
-    const angle = rel * (Math.PI / 3);
+    const rel = (ball.y - (player.y + PADDLE_H/2)) / (PADDLE_H/2);
+    const angle = rel * (Math.PI/3);
     const speed = Math.hypot(ball.vx, ball.vy) * 1.03;
     ball.vx = speed * Math.cos(angle);
     ball.vy = speed * Math.sin(angle);
-    bonkSound.play();
+    playPlayerPaddleSound();
   }
-  if (ball.x + BALL_R > cpu.x && ball.y > cpu.y && ball.y < cpu.y + PADDLE_H) {
+
+  if(ball.x+BALL_R > cpu.x && ball.y>cpu.y && ball.y<cpu.y+PADDLE_H){
     ball.x = cpu.x - BALL_R;
-    const rel = (ball.y - (cpu.y + PADDLE_H / 2)) / (PADDLE_H / 2);
-    const angle = rel * (Math.PI / 3);
+    const rel = (ball.y - (cpu.y + PADDLE_H/2)) / (PADDLE_H/2);
+    const angle = rel * (Math.PI/3);
     const speed = Math.hypot(ball.vx, ball.vy) * 1.03;
     ball.vx = -speed * Math.cos(angle);
     ball.vy = speed * Math.sin(angle);
-    bonkSound.play();
+    playCpuPaddleSound();
   }
 
-  if (ball.x < 0) { cpu.score++; resetBall(true); }
-  if (ball.x > GAME_W) { player.score++; resetBall(false); }
+  if(ball.x<0){cpu.score++; resetBall(true);}
+  if(ball.x>GAME_W){player.score++; resetBall(false);}
 
-  if (aiEnabled) {
-    const target = ball.y - PADDLE_H / 2;
+  //CPU 
+  if(aiEnabled){
+    const target = ball.y - PADDLE_H/2;
     const diff = target - cpu.y;
-    const aiSpeed = 220 * SCALE + Math.min(160 * SCALE, Math.abs(ball.vx));
-    cpu.y += clamp(diff, -aiSpeed * dt, aiSpeed * dt);
+    const baseSpeed = 150 * SCALE;
+    const speedBonus = Math.min(90 * SCALE, Math.abs(ball.vx));
+    const aiSpeed = baseSpeed + speedBonus;
+
+    const misjudgeChance = 0.15;
+    let adjustment = 1;
+    if(Math.random() < misjudgeChance){
+      adjustment = -0.5 + Math.random();
+    }
+
+    const reaction = 0.9 + Math.random()*0.3;
+    cpu.y += clamp(diff, -aiSpeed*dt*reaction*adjustment, aiSpeed*dt*reaction*adjustment);
   }
 
-  player.y = clamp(player.y, 0, GAME_H - PADDLE_H);
-  cpu.y = clamp(cpu.y, 0, GAME_H - PADDLE_H);
+  player.y=clamp(player.y,0,GAME_H-PADDLE_H);
+  cpu.y=clamp(cpu.y,0,GAME_H-PADDLE_H);
 }
 
-function resetBall(toPlayer) {
-  ball.x = GAME_W / 2; ball.y = GAME_H / 2;
-  const angle = (Math.random() * Math.PI / 3 - Math.PI / 6);
-  const speed = 220 * SCALE;
-  const dir = toPlayer ? -1 : 1;
-  ball.vx = speed * Math.cos(angle) * dir;
-  ball.vy = speed * Math.sin(angle);
+function handlePlayer(dt){
+  if(ballPaused) return;
+  const speed=300*SCALE;
+  if(keys['w']||keys['arrowup'])player.y-=speed*dt;
+  if(keys['s']||keys['arrowdown'])player.y+=speed*dt;
 }
 
-function resetGame() {
-  player.score = 0; cpu.score = 0; paused = true;
-  resetBall(Math.random() < 0.5);
+function resetBall(toPlayer){
+  ball.x=GAME_W/2; ball.y=GAME_H/2;
+  const angle=(Math.random()*Math.PI/3 - Math.PI/6); const speed=220*SCALE;
+  const dir=toPlayer?-1:1;
+  ball.vx=speed*Math.cos(angle)*dir; ball.vy=speed*Math.sin(angle);
 }
 
 const keys = {};
 window.addEventListener('keydown', e => {
   keys[e.key.toLowerCase()] = true;
-  if (e.code === 'Space') paused = !paused;
+  if(e.code==='Space'){
+    e.preventDefault();
+    if(firstStart){
+      firstStart = false;
+      ballPaused = false;
+      resetBall(Math.random()<0.5);
+    } else {
+      ballPaused = !ballPaused;
+    }
+  }
 });
 window.addEventListener('keyup', e => { keys[e.key.toLowerCase()] = false; });
 
-function handlePlayer(dt) {
-  const speed = 300 * SCALE;
-  if (keys['w'] || keys['arrowup']) player.y -= speed * dt;
-  if (keys['s'] || keys['arrowdown']) player.y += speed * dt;
-}
+function getRotatedBBox(w,h,angle){const sin=Math.abs(Math.sin(angle)),cos=Math.abs(Math.cos(angle));return {w:w*cos+h*sin,h:w*sin+h*cos};}
 
-function getRotatedBBox(w, h, angle) {
-  const sin = Math.abs(Math.sin(angle)), cos = Math.abs(Math.cos(angle));
-  return { w: w * cos + h * sin, h: w * sin + h * cos };
-}
+let lastTime=null;
+function loop(ts){
+  if(!lastTime) lastTime=ts;
+  const dt=(ts-lastTime)/1000;
+  lastTime=ts;
 
-// --- Main loop with bounce + rotation ---
-let lastTime = null;
-function loop(ts) {
-  if (!lastTime) lastTime = ts;
-  const dt = (ts - lastTime) / 1000;
-  lastTime = ts;
+  waveTime += dt*10;
+  hue = (hue + 180*dt) % 360;
+  updatePaddleCache((hue + 30) % 360);
+  updateBallCache(hue);
 
-  waveTime += dt * 10;
-  hue = (hue + 120 * dt) % 360;
-  handlePlayer(dt);
+  handlePlayer(dt); 
   step(dt);
-  draw();
 
-  if (movementEnabled) {
-    wrapRotation += wrapRotationSpeed * dt;
-    const bbox = getRotatedBBox(GAME_W, GAME_H, wrapRotation);
-    const halfW = bbox.w / 2, halfH = bbox.h / 2;
-
-    wrapCenterX += wrapVX * dt;
-    wrapCenterY += wrapVY * dt;
-
-    if (wrapCenterX - halfW < 0) { wrapCenterX = halfW; wrapVX *= -1; springSound.play(); }
-    if (wrapCenterX + halfW > window.innerWidth) { wrapCenterX = window.innerWidth - halfW; wrapVX *= -1; springSound.play(); }
-    if (wrapCenterY - halfH < 0) { wrapCenterY = halfH; wrapVY *= -1; springSound.play(); }
-    if (wrapCenterY + halfH > window.innerHeight) { wrapCenterY = window.innerHeight - halfH; wrapVY *= -1; springSound.play(); }
+  if(movementEnabled && !firstStart){
+    wrapRotation += wrapRotationSpeed*dt;
+    const bbox=getRotatedBBox(GAME_W,GAME_H,wrapRotation); const halfW=bbox.w/2, halfH=bbox.h/2;
+    wrapCenterX += wrapVX*dt; wrapCenterY += wrapVY*dt;
+    if(wrapCenterX-halfW<0){wrapVX*=-1; wrapCenterX=halfW;}
+    if(wrapCenterX+halfW>window.innerWidth){wrapVX*=-1; wrapCenterX=window.innerWidth-halfW;}
+    if(wrapCenterY-halfH<0){wrapVY*=-1; wrapCenterY=halfH;}
+    if(wrapCenterY+halfH>window.innerHeight){wrapVY*=-1; wrapCenterY=window.innerHeight-halfH;}
+    updateScoreMotion(dt);
   }
 
-  wrapEl.style.transform = `translate(${wrapCenterX - GAME_W / 2}px, ${wrapCenterY - GAME_H / 2}px) rotate(${wrapRotation}rad)`;
+  draw();
+  wrapEl.style.transform=`translate(${wrapCenterX-GAME_W/2}px,${wrapCenterY-GAME_H/2}px) rotate(${wrapRotation}rad)`;
   requestAnimationFrame(loop);
 }
 
-resetBtn.addEventListener('click', () => { resetGame(); draw(); });
-toggleMoveBtn.addEventListener('click', () => { movementEnabled = !movementEnabled; });
-toggleAIBtn.addEventListener('click', () => { aiEnabled = !aiEnabled; });
+resetBtn.addEventListener('click',()=>{location.reload();});
+toggleMoveBtn.addEventListener('click',()=>{movementEnabled=!movementEnabled;});
+toggleAIBtn.addEventListener('click',()=>{aiEnabled=!aiEnabled;});
 
-resetGame();
 requestAnimationFrame(loop);
 })();
 </script>
