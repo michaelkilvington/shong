@@ -4,6 +4,7 @@
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width,initial-scale=1" />
 <title>Shong - Shit Pong</title>
+<link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap" rel="stylesheet">
 <style>
 :root {
   --viewport-bg: #101010;
@@ -15,13 +16,69 @@ html, body { margin:0; height:100%; overflow:hidden; }
 body { background: var(--viewport-bg); font-family: "Comic Sans MS", cursive; position: relative; color: var(--fg); }
 .wrap { width:640px; height:360px; position:absolute; transform-origin:center center; }
 canvas { display:block; width:100%; height:100%; background: var(--court-bg); border-radius:10px; border:2px solid var(--line-color); box-shadow:0 8px 30px rgba(0,0,0,0.6); }
-.controls { position:absolute; bottom:-46px; left:0; width:100%; display:flex; justify-content:space-between; padding:0 8px; }
+.controls { position:absolute; bottom:-46px; left:0; width:100%; display:flex; justify-content:space-between; padding:0 2.5px; }
 .left-controls { display:flex; gap:6px; }
 button {
   background:transparent; border:1px solid rgba(230,238,248,0.15); padding:6px 10px; border-radius:8px; color: var(--fg); cursor:pointer;
   backdrop-filter: blur(4px); font-size:14px; font-family:"Comic Sans MS", cursive;
 }
 button:hover { background:rgba(255,255,255,0.1); }
+
+/* SETTINGS PANE */
+.settings-pane {
+  position: fixed; /* fixed so it doesn't move with the court */
+  top: 40px; 
+  left: 50%;
+  transform: translateX(-50%);
+  width: 240px;
+  padding: 16px;
+  background: #000;
+  border: 2px solid #fff;
+  border-radius: 6px;
+  color: #fff;
+  font-family: 'Press Start 2P', monospace; /* retro pong style font */
+  display: none;
+  z-index: 10;
+}
+
+.settings-pane h3 {
+  margin: 0 0 12px 0;
+  text-align: center;
+  font-size: 14px;
+  border-bottom: 1px solid #fff;
+  padding-bottom: 6px;
+}
+
+.setting {
+  margin-top: 12px;
+  display: flex;
+  align-items: center; /* vertically center checkbox and text */
+  gap: 8px;
+}
+
+.setting label {
+  display: flex;
+  align-items: center; /* ensures checkbox and text align nicely */
+  gap: 8px;
+  cursor: pointer;
+}
+
+.setting input[type="checkbox"] {
+  width: 18px; height: 18px;
+  appearance: none;
+  background: #000;
+  border: 2px solid #fff;
+  cursor: pointer;
+  position: relative;
+}
+
+.setting input[type="checkbox"]:checked::after {
+  content: '';
+  position: absolute;
+  top: 3px; left: 3px;
+  width: 8px; height: 8px;
+  background: #fff;
+}
 </style>
 </head>
 <body>
@@ -36,6 +93,17 @@ button:hover { background:rgba(255,255,255,0.1); }
   </div>
 </div>
 
+<!-- SETTINGS PANE outside wrap so it stays stationery -->
+<div class="settings-pane" id="settingsPane">
+  <h3>Settings</h3>
+  <div class="setting">
+    <label>
+      <input type="checkbox" id="toggleScoreMotion" checked />
+      Moving Score
+    </label>
+  </div>
+</div>
+
 <script>
 (() => {
 const canvas = document.getElementById('game');
@@ -44,6 +112,11 @@ const wrapEl = document.querySelector('.wrap');
 const resetBtn = document.getElementById('resetBtn');
 const toggleMoveBtn = document.getElementById('toggleMoveBtn');
 const toggleAIBtn = document.getElementById('toggleAIBtn');
+
+const settingsPane = document.getElementById('settingsPane');
+const toggleScoreMotionCheckbox = document.getElementById('toggleScoreMotion');
+
+let scoreMotionEnabled = true;
 
 const SCALE = 0.8;
 const GAME_W = 800 * SCALE, GAME_H = 450 * SCALE;
@@ -141,7 +214,7 @@ function updateBallCache(hue){
 }
 
 function updateScoreMotion(dt){
-  if(!movementEnabled || firstStart) return;
+  if(!movementEnabled || firstStart || !scoreMotionEnabled) return;
   const halfW = GAME_W/2, margin=20;
   [playerScore,cpuScore].forEach((s,i)=>{
     s.x+=s.vx*dt; s.y+=s.vy*dt; s.angle+=s.angularVelocity*dt;
@@ -239,6 +312,7 @@ function resetBall(toPlayer){
 const keys = {};
 window.addEventListener('keydown', e => {
   keys[e.key.toLowerCase()] = true;
+
   if(e.code==='Space'){
     e.preventDefault();
     if(firstStart){
@@ -249,8 +323,22 @@ window.addEventListener('keydown', e => {
       ballPaused = !ballPaused;
     }
   }
+
+  if(e.key.toLowerCase() === 'p'){
+    settingsPane.style.display = settingsPane.style.display === 'block' ? 'none' : 'block';
+  }
 });
+
 window.addEventListener('keyup', e => { keys[e.key.toLowerCase()] = false; });
+
+// SETTINGS TOGGLE
+toggleScoreMotionCheckbox.addEventListener('change', e => {
+  scoreMotionEnabled = e.target.checked;
+  if(!scoreMotionEnabled){
+    playerScore.x = GAME_W*0.25; playerScore.y = 40; playerScore.angle = 0;
+    cpuScore.x = GAME_W*0.75; cpuScore.y = 40; cpuScore.angle = 0;
+  }
+});
 
 function getRotatedBBox(w,h,angle){const sin=Math.abs(Math.sin(angle)),cos=Math.abs(Math.cos(angle));return {w:w*cos+h*sin,h:w*sin+h*cos};}
 
@@ -277,6 +365,9 @@ function loop(ts){
     if(wrapCenterY-halfH<0){wrapVY*=-1; wrapCenterY=halfH;}
     if(wrapCenterY+halfH>window.innerHeight){wrapVY*=-1; wrapCenterY=window.innerHeight-halfH;}
     updateScoreMotion(dt);
+  } else if(!scoreMotionEnabled){
+    playerScore.x = GAME_W*0.25; playerScore.y = 40; playerScore.angle = 0;
+    cpuScore.x = GAME_W*0.75; cpuScore.y = 40; cpuScore.angle = 0;
   }
 
   draw();
