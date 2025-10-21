@@ -20,13 +20,13 @@ canvas { display:block; width:100%; height:100%; background: var(--court-bg); bo
 .left-controls { display:flex; gap:6px; }
 button {
   background:transparent; border:1px solid rgba(230,238,248,0.15); padding:6px 10px; border-radius:8px; color: var(--fg); cursor:pointer;
-  backdrop-filter: blur(4px); font-size:14px; font-family:"Comic Sans MS", cursive;
+  backdrop-filter: blur(4px); font-size:14px; font-family:"Comic Sans MS",cursive;
 }
 button:hover { background:rgba(255,255,255,0.1); }
 
 /* SETTINGS PANE */
 .settings-pane {
-  position: fixed; /* fixed so it doesn't move with the court */
+  position: fixed; 
   top: 40px; 
   left: 50%;
   transform: translateX(-50%);
@@ -36,7 +36,7 @@ button:hover { background:rgba(255,255,255,0.1); }
   border: 2px solid #fff;
   border-radius: 6px;
   color: #fff;
-  font-family: 'Press Start 2P', monospace; /* retro pong style font */
+  font-family: 'Press Start 2P', monospace;
   display: none;
   z-index: 10;
 }
@@ -52,13 +52,13 @@ button:hover { background:rgba(255,255,255,0.1); }
 .setting {
   margin-top: 12px;
   display: flex;
-  align-items: center; /* vertically center checkbox and text */
+  align-items: center;
   gap: 8px;
 }
 
 .setting label {
   display: flex;
-  align-items: center; /* ensures checkbox and text align nicely */
+  align-items: center;
   gap: 8px;
   cursor: pointer;
 }
@@ -84,6 +84,34 @@ button:hover { background:rgba(255,255,255,0.1); }
 <body>
 <div class="wrap">
   <canvas id="game"></canvas>
+
+  <!-- tutorial dialog -->
+  <div id="tutorialDialog" style="
+  position:absolute;
+  top:50%;
+  left:50%;
+  transform:translate(-50%,-50%);
+  width:320px;
+  padding:16px;
+  border-radius:8px;
+  background:#000;
+  color: var(--fg);
+  font-family:'Comic Sans MS',cursive;
+  text-align:center;
+  display:flex;
+  flex-direction:column;
+  gap:12px;
+  z-index:10;
+  box-shadow: 0 4px 12px rgba(255,255,255,0.2), 0 0 0 2px #fff;
+  border:2px solid #fff;
+  ">
+    <h2 style="margin:0;font-size:18px;">Controls</h2>
+    <div>Space → Start / Pause</div>
+    <div>W / S or ↑ / ↓ → Move Paddle</div>
+    <div>P → Settings</div>
+    <div style="opacity:0.8;font-size:12px;">Press Space to continue</div>
+  </div>
+
   <div class="controls">
     <div class="left-controls">
       <button id="toggleMoveBtn">Toggle Movement</button>
@@ -93,7 +121,7 @@ button:hover { background:rgba(255,255,255,0.1); }
   </div>
 </div>
 
-<!-- settings -->
+<!-- Settings pane -->
 <div class="settings-pane" id="settingsPane">
   <h3>Settings</h3>
   <div class="setting">
@@ -119,91 +147,105 @@ const resetBtn = document.getElementById('resetBtn');
 const toggleMoveBtn = document.getElementById('toggleMoveBtn');
 const toggleAIBtn = document.getElementById('toggleAIBtn');
 
+const tutorialDialog = document.getElementById('tutorialDialog');
 const settingsPane = document.getElementById('settingsPane');
 const toggleScoreMotionCheckbox = document.getElementById('toggleScoreMotion');
-
 const toggleSoundCheckbox = document.getElementById('toggleSound');
-let soundEnabled = true;
 
-toggleSoundCheckbox.addEventListener('change', e => {
-  soundEnabled = e.target.checked;
+let showTutorial = true;
+let settingsOpen = false;
+let soundEnabled = true;
+let scoreMotionEnabled = true;
+let firstStart = true;
+let ballPaused = true;
+let movementEnabled = true;
+
+if(showTutorial) tutorialDialog.style.display = 'flex';
+
+//modal active if tutorial or settings open
+function modalActive(){ return showTutorial || settingsOpen; }
+
+toggleSoundCheckbox.addEventListener('change', e => { soundEnabled = e.target.checked; });
+toggleScoreMotionCheckbox.addEventListener('change', e => { 
+  scoreMotionEnabled = e.target.checked;
+  if(!scoreMotionEnabled){
+    playerScore.x = GAME_W*0.25; playerScore.y = 40; playerScore.angle = 0;
+    cpuScore.x = GAME_W*0.75; cpuScore.y = 40; cpuScore.angle = 0;
+  }
 });
 
-let scoreMotionEnabled = true;
-
 const SCALE = 0.8;
-const GAME_W = 800 * SCALE, GAME_H = 450 * SCALE;
-const PADDLE_W = 12 * SCALE, PADDLE_H = 90 * SCALE, BALL_R = 8 * SCALE;
+const GAME_W = 800*SCALE, GAME_H = 450*SCALE;
+const PADDLE_W = 12*SCALE, PADDLE_H = 90*SCALE, BALL_R = 8*SCALE;
 
 function fitCanvas() {
   const rect = canvas.getBoundingClientRect();
-  canvas.width = Math.round(rect.width * devicePixelRatio);
-  canvas.height = Math.round(rect.height * devicePixelRatio);
-  ctx.setTransform(devicePixelRatio, 0, 0, devicePixelRatio, 0, 0);
+  canvas.width = Math.round(rect.width*devicePixelRatio);
+  canvas.height = Math.round(rect.height*devicePixelRatio);
+  ctx.setTransform(devicePixelRatio,0,0,devicePixelRatio,0,0);
 }
 fitCanvas();
 new ResizeObserver(fitCanvas).observe(canvas);
 
-function createSoundPool(src, poolSize = 5) {
-  const pool = Array.from({length: poolSize}, () => new Audio(src));
+function createSoundPool(src, poolSize=5){
+  const pool = Array.from({length:poolSize},()=>new Audio(src));
   let index = 0;
-  return function playSound() {
+  return function playSound(){
     if(!soundEnabled) return;
-    pool[index].currentTime = 0;
+    pool[index].currentTime=0;
     pool[index].play();
-    index = (index + 1) % pool.length;
-  };
+    index = (index+1)%poolSize;
+  }
 }
 
-
-const playPlayerPaddleSound = createSoundPool('sound/paddlehit1.wav', 5);
-const playCpuPaddleSound = createSoundPool('sound/paddlehit2.wav', 5);
-
+const playPlayerPaddleSound = createSoundPool('sound/paddlehit1.wav',5);
+const playCpuPaddleSound = createSoundPool('sound/paddlehit2.wav',5);
 const pauseMenuMusic = new Audio('sound/pausemenumusic.mp3');
-pauseMenuMusic.loop = true; 
+pauseMenuMusic.loop = true;
 
-let player = { x: 24 * SCALE, y: (GAME_H - PADDLE_H) / 2, score: 0 };
-let cpu = { x: GAME_W - 24 * SCALE - PADDLE_W, y: (GAME_H - PADDLE_H) / 2, score: 0 };
-let ball = { x: GAME_W / 2, y: GAME_H / 2, vx: 220 * SCALE, vy: 60 * SCALE, r: BALL_R };
 
-let firstStart = true, ballPaused = true, aiEnabled = true, movementEnabled = true, hue = 0, waveTime = 0;
+let player = { x:24*SCALE, y:(GAME_H-PADDLE_H)/2, score:0 };
+let cpu = { x:GAME_W-24*SCALE-PADDLE_W, y:(GAME_H-PADDLE_H)/2, score:0 };
+let ball = { x:GAME_W/2, y:GAME_H/2, vx:220*SCALE, vy:60*SCALE, r:BALL_R };
 
-let wrapCenterX = window.innerWidth / 2, wrapCenterY = window.innerHeight / 2;
-let wrapVX = 150, wrapVY = 120, wrapRotation = 0, wrapRotationSpeed = 0.5;
+let hue=0, waveTime=0;
+
+let wrapCenterX = window.innerWidth/2, wrapCenterY = window.innerHeight/2;
+let wrapVX=150, wrapVY=120, wrapRotation=0, wrapRotationSpeed=0.5;
 
 const SCORE_FONT_SIZE = 28;
 let playerScore = { x: GAME_W*0.25, y:40, vx:40, vy:30, angle:0, angularVelocity:1.5 };
-let cpuScore    = { x: GAME_W*0.75, y:40, vx:-50, vy:40, angle:0, angularVelocity:-2 };
+let cpuScore = { x: GAME_W*0.75, y:40, vx:-50, vy:40, angle:0, angularVelocity:-2 };
 
-function clamp(v, a, b) { return Math.max(a, Math.min(b, v)); }
+function clamp(v,a,b){ return Math.max(a,Math.min(b,v)); }
 
 const paddleCache = document.createElement('canvas');
-paddleCache.width = PADDLE_W + 6 * SCALE;
+paddleCache.width = PADDLE_W + 6*SCALE;
 paddleCache.height = PADDLE_H;
 const paddleCtx = paddleCache.getContext('2d');
 
-function updatePaddleCache(hue) {
+function updatePaddleCache(hue){
   const gradient = paddleCtx.createLinearGradient(0,0,0,PADDLE_H);
-  gradient.addColorStop(0, `hsl(${hue},100%,60%)`);
-  gradient.addColorStop(0.5, `hsl(${(hue+60)%360},100%,50%)`);
-  gradient.addColorStop(1, `hsl(${(hue+120)%360},100%,40%)`);
+  gradient.addColorStop(0,`hsl(${hue},100%,60%)`);
+  gradient.addColorStop(0.5,`hsl(${(hue+60)%360},100%,50%)`);
+  gradient.addColorStop(1,`hsl(${(hue+120)%360},100%,40%)`);
   paddleCtx.fillStyle = gradient;
   paddleCtx.fillRect(0,0,paddleCache.width,paddleCache.height);
 }
 
-function drawWavyPaddle(x, y){
-  const amplitude = 3 * SCALE, wavelength = 16 * SCALE;
-  const steps = 8; 
+function drawWavyPaddle(x,y){
+  const amplitude = 3*SCALE, wavelength = 16*SCALE;
+  const steps = 8;
   ctx.beginPath();
   for(let i=0;i<=steps;i++){
     const iy = (i/steps)*PADDLE_H;
     const offset = Math.sin((iy/wavelength)+waveTime*0.6)*amplitude;
-    ctx.lineTo(x + offset, y + iy);
+    ctx.lineTo(x+offset, y+iy);
   }
   for(let i=steps;i>=0;i--){
     const iy = (i/steps)*PADDLE_H;
     const offset = Math.sin((iy/wavelength)+waveTime*0.6+Math.PI)*amplitude;
-    ctx.lineTo(x+PADDLE_W+offset, y + iy);
+    ctx.lineTo(x+PADDLE_W+offset, y+iy);
   }
   ctx.closePath();
   ctx.save();
@@ -213,21 +255,21 @@ function drawWavyPaddle(x, y){
 }
 
 const ballCache = document.createElement('canvas');
-ballCache.width = BALL_R*2 + 4;
-ballCache.height = BALL_R*2 + 4;
+ballCache.width = BALL_R*2+4;
+ballCache.height = BALL_R*2+4;
 const ballCtx = ballCache.getContext('2d');
 
 function updateBallCache(hue){
-  const r = BALL_R;
-  const center = r + 2;
-  const grad = ballCtx.createRadialGradient(center, center, r*0.2, center, center, r);
+  const r=BALL_R;
+  const center=r+2;
+  const grad = ballCtx.createRadialGradient(center,center,r*0.2,center,center,r);
   grad.addColorStop(0, `hsl(${hue},100%,60%)`);
   grad.addColorStop(0.5, `hsl(${(hue+60)%360},100%,50%)`);
   grad.addColorStop(1, `hsl(${(hue+120)%360},100%,40%)`);
   ballCtx.clearRect(0,0,ballCache.width,ballCache.height);
-  ballCtx.fillStyle = grad;
+  ballCtx.fillStyle=grad;
   ballCtx.beginPath();
-  ballCtx.arc(center, center, r, 0, Math.PI*2);
+  ballCtx.arc(center,center,r,0,Math.PI*2);
   ballCtx.fill();
 }
 
@@ -253,148 +295,159 @@ function draw(){
   ctx.setLineDash([]);
   drawWavyPaddle(player.x,player.y);
   drawWavyPaddle(cpu.x,cpu.y);
-  ctx.drawImage(ballCache, Math.round(ball.x - BALL_R - 2), Math.round(ball.y - BALL_R - 2));
-
+  ctx.drawImage(ballCache, Math.round(ball.x-BALL_R-2), Math.round(ball.y-BALL_R-2));
   ctx.fillStyle="#fff"; ctx.font=`${SCORE_FONT_SIZE}px "Comic Sans MS"`; ctx.textAlign="center"; ctx.textBaseline="middle";
-  [playerScore,cpuScore].forEach((s,i)=>{
-    ctx.save(); ctx.translate(Math.round(s.x),Math.round(s.y)); ctx.rotate(s.angle); 
-    ctx.fillText(i===0?player.score:cpu.score,0,0); ctx.restore();
-  });
+  [playerScore,cpuScore].forEach((s,i)=>{ctx.save(); ctx.translate(Math.round(s.x),Math.round(s.y)); ctx.rotate(s.angle); ctx.fillText(i===0?player.score:cpu.score,0,0); ctx.restore();});
 }
 
 function step(dt){
-  if(ballPaused) return;
+  if(ballPaused || modalActive()) return;
   ball.x+=ball.vx*dt; ball.y+=ball.vy*dt;
   if(ball.y-BALL_R<0){ball.y=BALL_R; ball.vy*=-1;}
   if(ball.y+BALL_R>GAME_H){ball.y=GAME_H-BALL_R; ball.vy*=-1;}
-
-  if(ball.x-BALL_R < player.x+PADDLE_W && ball.y>player.y && ball.y<player.y+PADDLE_H){
-    ball.x = player.x + PADDLE_W + BALL_R;
-    const rel = (ball.y - (player.y + PADDLE_H/2)) / (PADDLE_H/2);
-    const angle = rel * (Math.PI/3);
-    const speed = Math.hypot(ball.vx, ball.vy) * 1.03;
-    ball.vx = speed * Math.cos(angle);
-    ball.vy = speed * Math.sin(angle);
+  if(ball.x-BALL_R<player.x+PADDLE_W && ball.y>player.y && ball.y<player.y+PADDLE_H){
+    ball.x=player.x+PADDLE_W+BALL_R;
+    const rel=(ball.y-(player.y+PADDLE_H/2))/(PADDLE_H/2);
+    const angle = rel*(Math.PI/3);
+    const speed = Math.hypot(ball.vx,ball.vy)*1.03;
+    ball.vx = speed*Math.cos(angle);
+    ball.vy = speed*Math.sin(angle);
     playPlayerPaddleSound();
   }
-
-  if(ball.x+BALL_R > cpu.x && ball.y>cpu.y && ball.y<cpu.y+PADDLE_H){
-    ball.x = cpu.x - BALL_R;
-    const rel = (ball.y - (cpu.y + PADDLE_H/2)) / (PADDLE_H/2);
-    const angle = rel * (Math.PI/3);
-    const speed = Math.hypot(ball.vx, ball.vy) * 1.03;
-    ball.vx = -speed * Math.cos(angle);
-    ball.vy = speed * Math.sin(angle);
+  if(ball.x+BALL_R>cpu.x && ball.y>cpu.y && ball.y<cpu.y+PADDLE_H){
+    ball.x=cpu.x-BALL_R;
+    const rel=(ball.y-(cpu.y+PADDLE_H/2))/(PADDLE_H/2);
+    const angle = rel*(Math.PI/3);
+    const speed = Math.hypot(ball.vx,ball.vy)*1.03;
+    ball.vx = -speed*Math.cos(angle);
+    ball.vy = speed*Math.sin(angle);
     playCpuPaddleSound();
   }
-
   if(ball.x<0){cpu.score++; resetBall(true);}
   if(ball.x>GAME_W){player.score++; resetBall(false);}
-
-  //CPU 
+  //CPU
   if(aiEnabled){
-    const target = ball.y - PADDLE_H/2;
-    const diff = target - cpu.y;
-    const baseSpeed = 150 * SCALE;
-    const speedBonus = Math.min(90 * SCALE, Math.abs(ball.vx));
-    const aiSpeed = baseSpeed + speedBonus;
-
-    const misjudgeChance = 0.15;
-    let adjustment = 1;
-    if(Math.random() < misjudgeChance){
-      adjustment = -0.5 + Math.random();
-    }
-
-    const reaction = 0.9 + Math.random()*0.3;
-    cpu.y += clamp(diff, -aiSpeed*dt*reaction*adjustment, aiSpeed*dt*reaction*adjustment);
+    const target=ball.y-PADDLE_H/2;
+    const diff=target-cpu.y;
+    const baseSpeed=150*SCALE;
+    const speedBonus=Math.min(90*SCALE,Math.abs(ball.vx));
+    const aiSpeed=baseSpeed+speedBonus;
+    let adjustment=1;
+    if(Math.random()<0.15) adjustment=-0.5+Math.random();
+    const reaction=0.9+Math.random()*0.3;
+    cpu.y+=clamp(diff,-aiSpeed*dt*reaction*adjustment,aiSpeed*dt*reaction*adjustment);
   }
-
   player.y=clamp(player.y,0,GAME_H-PADDLE_H);
   cpu.y=clamp(cpu.y,0,GAME_H-PADDLE_H);
 }
 
+function modalActive() {
+  return showTutorial || settingsOpen;
+}
+
 function handlePlayer(dt){
-  if(ballPaused) return;
+  if(ballPaused || modalActive()) return;
   const speed=300*SCALE;
   if(keys['w']||keys['arrowup'])player.y-=speed*dt;
   if(keys['s']||keys['arrowdown'])player.y+=speed*dt;
 }
 
+
 function resetBall(toPlayer){
   ball.x=GAME_W/2; ball.y=GAME_H/2;
-  const angle=(Math.random()*Math.PI/3 - Math.PI/6); const speed=220*SCALE;
+  const angle=(Math.random()*Math.PI/3-Math.PI/6);
+  const speed=220*SCALE;
   const dir=toPlayer?-1:1;
-  ball.vx=speed*Math.cos(angle)*dir; ball.vy=speed*Math.sin(angle);
+  ball.vx=speed*Math.cos(angle)*dir;
+  ball.vy=speed*Math.sin(angle);
 }
 
-const keys = {};
-window.addEventListener('keydown', e => {
-  keys[e.key.toLowerCase()] = true;
+const keys={};
+let aiEnabled=true;
 
-  if(e.code==='Space'){
+window.addEventListener('keydown', e => {
+  const key = e.key.toLowerCase();
+
+  //dismiss tutorial first
+  if(showTutorial && e.code === 'Space') {
+    tutorialDialog.style.display = 'none';
+    showTutorial = false;
+    //let the rest of space logic run so the game can start immediately
+  }
+
+  //space to start/pause
+  if(e.code === 'Space') {
     e.preventDefault();
     if(firstStart){
       firstStart = false;
       ballPaused = false;
       resetBall(Math.random()<0.5);
-    } else {
+    } else if(!showTutorial) { //only toggle pause if tutorial is gone
       ballPaused = !ballPaused;
     }
   }
 
-  if(e.key.toLowerCase() === 'p'){
+  //player movement
+  if(key === 'w') keys['w'] = true;
+  if(key === 's') keys['s'] = true;
+  if(key === 'arrowup') keys['arrowup'] = true;
+  if(key === 'arrowdown') keys['arrowdown'] = true;
+
+  //toggle settings
+  if(key === 'p') {
     if(settingsPane.style.display === 'block'){
       settingsPane.style.display = 'none';
+      settingsOpen = false;
       pauseMenuMusic.pause();
       pauseMenuMusic.currentTime = 0;
+      if(!firstStart) ballPaused = false;
+      movementEnabled = true;
     } else {
       settingsPane.style.display = 'block';
-      if(soundEnabled) pauseMenuMusic.play();
+      settingsOpen = true;
+      ballPaused = true;
+      movementEnabled = false;
+      if(soundEnabled) pauseMenuMusic.play().catch(()=>{});
     }
   }
 });
 
-window.addEventListener('keyup', e => { keys[e.key.toLowerCase()] = false; });
-
-// SETTINGS TOGGLE
-toggleScoreMotionCheckbox.addEventListener('change', e => {
-  scoreMotionEnabled = e.target.checked;
-  if(!scoreMotionEnabled){
-    playerScore.x = GAME_W*0.25; playerScore.y = 40; playerScore.angle = 0;
-    cpuScore.x = GAME_W*0.75; cpuScore.y = 40; cpuScore.angle = 0;
-  }
+window.addEventListener('keyup', e => {
+  const key = e.key.toLowerCase();
+  keys[key] = false;
 });
 
-function getRotatedBBox(w,h,angle){const sin=Math.abs(Math.sin(angle)),cos=Math.abs(Math.cos(angle));return {w:w*cos+h*sin,h:w*sin+h*cos};}
+function getRotatedBBox(w,h,angle){
+  const sin=Math.abs(Math.sin(angle)), cos=Math.abs(Math.cos(angle));
+  return { w:w*cos+h*sin, h:w*sin+h*cos };
+}
 
 let lastTime=null;
 function loop(ts){
   if(!lastTime) lastTime=ts;
   const dt=(ts-lastTime)/1000;
   lastTime=ts;
-
-  waveTime += dt*10;
-  hue = (hue + 180*dt) % 360;
-  updatePaddleCache((hue + 30) % 360);
+  waveTime+=dt*10;
+  hue=(hue+180*dt)%360;
+  updatePaddleCache((hue+30)%360);
   updateBallCache(hue);
-
-  handlePlayer(dt); 
+  handlePlayer(dt);
   step(dt);
-
   if(movementEnabled && !firstStart){
     wrapRotation += wrapRotationSpeed*dt;
-    const bbox=getRotatedBBox(GAME_W,GAME_H,wrapRotation); const halfW=bbox.w/2, halfH=bbox.h/2;
-    wrapCenterX += wrapVX*dt; wrapCenterY += wrapVY*dt;
+    const bbox=getRotatedBBox(GAME_W,GAME_H,wrapRotation);
+    const halfW=bbox.w/2, halfH=bbox.h/2;
+    wrapCenterX+=wrapVX*dt;
+    wrapCenterY+=wrapVY*dt;
     if(wrapCenterX-halfW<0){wrapVX*=-1; wrapCenterX=halfW;}
     if(wrapCenterX+halfW>window.innerWidth){wrapVX*=-1; wrapCenterX=window.innerWidth-halfW;}
     if(wrapCenterY-halfH<0){wrapVY*=-1; wrapCenterY=halfH;}
     if(wrapCenterY+halfH>window.innerHeight){wrapVY*=-1; wrapCenterY=window.innerHeight-halfH;}
     updateScoreMotion(dt);
   } else if(!scoreMotionEnabled){
-    playerScore.x = GAME_W*0.25; playerScore.y = 40; playerScore.angle = 0;
-    cpuScore.x = GAME_W*0.75; cpuScore.y = 40; cpuScore.angle = 0;
+    playerScore.x = GAME_W*0.25; playerScore.y = 40; playerScore.angle=0;
+    cpuScore.x = GAME_W*0.75; cpuScore.y =40; cpuScore.angle=0;
   }
-
   draw();
   wrapEl.style.transform=`translate(${wrapCenterX-GAME_W/2}px,${wrapCenterY-GAME_H/2}px) rotate(${wrapRotation}rad)`;
   requestAnimationFrame(loop);
