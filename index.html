@@ -108,7 +108,6 @@ fitCanvas();
 new ResizeObserver(fitCanvas).observe(canvas);
 
 const bonkSound = new Audio('sound/bonk.wav');
-const springSound = new Audio('sound/spring.wav');
 
 let player = { x: 24 * SCALE, y: (GAME_H - PADDLE_H) / 2, score: 0 };
 let cpu = { x: GAME_W - 24 * SCALE - PADDLE_W, y: (GAME_H - PADDLE_H) / 2, score: 0 };
