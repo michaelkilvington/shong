@@ -58,7 +58,19 @@ function fitCanvas() {
 fitCanvas();
 new ResizeObserver(fitCanvas).observe(canvas);
 
-const bonkSound = new Audio('sound/bonk.wav');
+// --- Paddle sounds (overlapping-safe) ---
+function createSoundPool(src, poolSize = 5) {
+  const pool = Array.from({length: poolSize}, () => new Audio(src));
+  let index = 0;
+  return function playSound() {
+    pool[index].currentTime = 0;
+    pool[index].play();
+    index = (index + 1) % poolSize;
+  };
+}
+
+const playPlayerPaddleSound = createSoundPool('sound/paddlehit1.wav', 5);
+const playCpuPaddleSound = createSoundPool('sound/paddlehit2.wav', 5);
 
 let player = { x: 24 * SCALE, y: (GAME_H - PADDLE_H) / 2, score: 0 };
 let cpu = { x: GAME_W - 24 * SCALE - PADDLE_W, y: (GAME_H - PADDLE_H) / 2, score: 0 };
@@ -169,17 +181,28 @@ function step(dt){
   ball.x+=ball.vx*dt; ball.y+=ball.vy*dt;
   if(ball.y-BALL_R<0){ball.y=BALL_R; ball.vy*=-1;}
   if(ball.y+BALL_R>GAME_H){ball.y=GAME_H-BALL_R; ball.vy*=-1;}
+
+  // --- Paddle collisions ---
   if(ball.x-BALL_R < player.x+PADDLE_W && ball.y>player.y && ball.y<player.y+PADDLE_H){
-    ball.x=player.x+PADDLE_W+BALL_R;
-    const rel=(ball.y-(player.y+PADDLE_H/2))/(PADDLE_H/2);
-    const angle=rel*(Math.PI/3); const speed=Math.hypot(ball.vx,ball.vy)*1.03;
-    ball.vx=speed*Math.cos(angle); ball.vy=speed*Math.sin(angle); bonkSound.play();
+    ball.x = player.x + PADDLE_W + BALL_R;
+    const rel = (ball.y - (player.y + PADDLE_H/2)) / (PADDLE_H/2);
+    const angle = rel * (Math.PI/3);
+    const speed = Math.hypot(ball.vx, ball.vy) * 1.03;
+    ball.vx = speed * Math.cos(angle);
+    ball.vy = speed * Math.sin(angle);
+    playPlayerPaddleSound();
   }
-  if(ball.x+BALL_R>cpu.x && ball.y>cpu.y && ball.y<cpu.y+PADDLE_H){
-    ball.x=cpu.x-BALL_R; const rel=(ball.y-(cpu.y+PADDLE_H/2))/(PADDLE_H/2);
-    const angle=rel*(Math.PI/3); const speed=Math.hypot(ball.vx,ball.vy)*1.03;
-    ball.vx=-speed*Math.cos(angle); ball.vy=speed*Math.sin(angle); bonkSound.play();
+
+  if(ball.x+BALL_R > cpu.x && ball.y>cpu.y && ball.y<cpu.y+PADDLE_H){
+    ball.x = cpu.x - BALL_R;
+    const rel = (ball.y - (cpu.y + PADDLE_H/2)) / (PADDLE_H/2);
+    const angle = rel * (Math.PI/3);
+    const speed = Math.hypot(ball.vx, ball.vy) * 1.03;
+    ball.vx = -speed * Math.cos(angle);
+    ball.vy = speed * Math.sin(angle);
+    playCpuPaddleSound();
   }
+
   if(ball.x<0){cpu.score++; resetBall(true);}
   if(ball.x>GAME_W){player.score++; resetBall(false);}
   if(aiEnabled){const target=ball.y-PADDLE_H/2; const diff=target-cpu.y; const aiSpeed=220*SCALE+Math.min(160*SCALE,Math.abs(ball.vx)); cpu.y+=clamp(diff,-aiSpeed*dt,aiSpeed*dt);}
@@ -201,8 +224,18 @@ function resetBall(toPlayer){
 }
 
 const keys={};
-window.addEventListener('keydown',e=>{keys[e.key.toLowerCase()]=true; if(e.code==='Space'){if(firstStart){firstStart=false; ballPaused=false;}else{ballPaused=!ballPaused;}}});
-window.addEventListener('keyup',e=>keys[e.key.toLowerCase()]=false);
+window.addEventListener('keydown', e => {
+  keys[e.key.toLowerCase()] = true;
+  if (e.code === 'Space') {
+    if(firstStart){
+      firstStart = false;
+      ballPaused = false;
+    } else {
+      ballPaused = !ballPaused; // ONLY pauses/unpauses the ball
+    }
+  }
+});
+window.addEventListener('keyup', e => keys[e.key.toLowerCase()] = false);
 
 function getRotatedBBox(w,h,angle){const sin=Math.abs(Math.sin(angle)),cos=Math.abs(Math.cos(angle));return {w:w*cos+h*sin,h:w*sin+h*cos};}
 
@@ -210,6 +243,7 @@ let lastTime=null;
 function loop(ts){
   if(!lastTime) lastTime=ts;
   const dt=(ts-lastTime)/1000; lastTime=ts;
+
   waveTime += dt*10;
   hue = (hue + 180*dt) % 360;
   updatePaddleCache((hue + 30) % 360);
